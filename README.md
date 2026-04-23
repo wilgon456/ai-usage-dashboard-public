@@ -1,27 +1,27 @@
 # AI Usage Dashboard
 
-Cross-platform desktop dashboard for AI coding assistant usage.
+AI 코딩 도구 사용량을 한곳에서 확인할 수 있도록 만든 크로스플랫폼 데스크톱 대시보드입니다.
 
-## What It Does
+## 개요
 
-`AI Usage Dashboard` is a Tauri desktop app that shows usage and account state for:
+`AI Usage Dashboard`는 Tauri 기반의 트레이 / 메뉴바 중심 데스크톱 앱입니다. 현재 다음 서비스를 대상으로 사용량과 계정 상태를 표시합니다.
 
 - Codex
 - Claude
 - GitHub Copilot
 - OpenRouter
 
-The app is built as a small tray / menu bar surface rather than a browser-first dashboard.
+브라우저 대시보드보다는 작은 시스템 트레이 / 메뉴바 앱 경험에 초점을 두고 있습니다.
 
-## Current Scope
+## 현재 범위
 
-- macOS tray / menu bar workflow
-- Windows system tray packaging target
-- Tauri v2 desktop shell
-- React + Vite frontend
-- Shared provider/core packages
+- macOS 메뉴바 / 트레이 워크플로우
+- Windows 시스템 트레이 패키징 대상
+- Tauri v2 네이티브 셸
+- React + Vite 프론트엔드
+- 공통 `core` / `platform` / `providers` 패키지 구조
 
-## Project Layout
+## 프로젝트 구조
 
 ```text
 apps/
@@ -33,54 +33,54 @@ packages/
 docs/
 ```
 
-## Development
+## 개발
 
-1. Install dependencies:
+1. 의존성 설치
 
 ```bash
 npm install
 ```
 
-2. Run type checks:
+2. 타입 체크
 
 ```bash
 npm run typecheck
 ```
 
-3. Run the desktop app in dev mode:
+3. 데스크톱 앱 개발 실행
 
 ```bash
 npm run dev:tauri
 ```
 
-4. Build the desktop app:
+4. 프로덕션 빌드
 
 ```bash
 npm run build
 ```
 
-## Packaging
+## 패키징
 
-- macOS DMG:
+- macOS DMG
 
 ```bash
 npm run build:desktop:mac
 ```
 
-- Windows MSI:
+- Windows MSI
 
 ```bash
 npm run build:desktop:win
 ```
 
-Windows release artifacts are also produced by GitHub Actions.
+Windows 릴리스 아티팩트는 GitHub Actions를 통해서도 생성됩니다.
 
-## Notes
+## 참고
 
-- Provider integrations rely on local auth/session state exposed by each vendor CLI or API key flow.
-- Some usage sources are based on vendor-private or unstable response contracts and may require maintenance if upstream behavior changes.
+- 각 provider 연동은 해당 CLI 로그인 상태나 API 키 등 로컬 인증 상태를 기반으로 동작합니다.
+- 일부 사용량 소스는 공개 고정 API가 아니라 벤더의 비공개 또는 변동 가능한 응답 계약에 의존하므로, 업스트림 변경 시 유지보수가 필요할 수 있습니다.
 
-## Docs
+## 문서
 
 - [Architecture](docs/architecture.md)
 - [Install](docs/install.md)
