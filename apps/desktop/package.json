@@ -1,0 +1,43 @@
+{
+  "name": "@ai-usage-dashboard/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "tauri:build": "tauri build",
+    "tauri:build:mac": "tauri build --bundles dmg",
+    "tauri:build:win": "tauri build --bundles msi",
+    "tauri:dev": "tauri dev",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@ai-usage-dashboard/core": "0.1.0",
+    "@ai-usage-dashboard/platform": "0.1.0",
+    "@ai-usage-dashboard/providers": "0.1.0",
+    "@tailwindcss/vite": "^4.2.4",
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-store": "^2.4.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.8.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.4",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.1.3",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}

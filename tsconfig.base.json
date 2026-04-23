@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmitOnError": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ai-usage-dashboard/core": ["packages/core/src/index.ts"],
+      "@ai-usage-dashboard/platform": ["packages/platform/src/index.ts"],
+      "@ai-usage-dashboard/providers": ["packages/providers/src/index.ts"]
+    }
+  }
+}

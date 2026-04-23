@@ -1,0 +1,16 @@
+{
+  "name": "@ai-usage-dashboard/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@ai-usage-dashboard/core": "0.1.0",
+    "@ai-usage-dashboard/platform": "0.1.0"
+  }
+}

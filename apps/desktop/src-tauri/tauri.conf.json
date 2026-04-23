@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AI Usage Dashboard",
+  "version": "0.1.0",
+  "identifier": "app.ai-usage-dashboard.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev --workspace @ai-usage-dashboard/desktop -- --host 127.0.0.1 --port 4173",
+    "beforeBuildCommand": "npm run build --workspace @ai-usage-dashboard/desktop",
+    "devUrl": "http://127.0.0.1:4173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Usage Dashboard",
+        "width": 470,
+        "height": 620,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visibleOnAllWorkspaces": true,
+        "focus": true,
+        "shadow": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "dmg",
+      "msi"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Track Codex, Claude, Copilot, OpenRouter usage.",
+    "longDescription": "A menu bar / system tray dashboard for AI coding assistant usage.",
+    "copyright": "© 2026 AI Usage Dashboard contributors",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "dmg": {
+        "background": null
+      }
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  }
+}

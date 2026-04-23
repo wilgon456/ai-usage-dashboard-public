@@ -1,0 +1,22 @@
+{
+  "name": "ai_usage_dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run typecheck && npm run build --workspace @ai-usage-dashboard/desktop",
+    "build:desktop:mac": "npm run tauri:build:mac --workspace @ai-usage-dashboard/desktop",
+    "build:desktop:win": "npm run tauri:build:win --workspace @ai-usage-dashboard/desktop",
+    "clean": "node -e \"const fs=require('fs'); ['packages/core/dist','packages/platform/dist','packages/providers/dist','apps/desktop/dist'].forEach((path)=>fs.rmSync(path,{recursive:true,force:true}))\"",
+    "dev:desktop": "npm run dev --workspace @ai-usage-dashboard/desktop",
+    "dev:tauri": "npm run tauri:dev --workspace @ai-usage-dashboard/desktop",
+    "lint": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
