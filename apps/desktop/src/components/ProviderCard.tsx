@@ -94,7 +94,7 @@ function CompactSummary({
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
           <div
             className="h-full rounded-full transition-[width]"
-            style={{ width: `${usedRatio * 100}%`, backgroundColor: accent }}
+            style={{ width: `${shownRatio * 100}%`, backgroundColor: accent }}
           />
         </div>
       </div>

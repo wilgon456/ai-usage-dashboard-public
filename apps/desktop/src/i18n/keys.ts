@@ -50,7 +50,6 @@ export const translationKeys = [
   "footer.neverRefreshed",
   "footer.refreshAction",
   "footer.updated",
-  "home.overview",
   "home.providersSubtitle",
   "home.providersTitle",
   "metric.leftSuffix",

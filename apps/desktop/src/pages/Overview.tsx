@@ -21,9 +21,6 @@ export function Overview({
   return (
     <section className="flex flex-col gap-3">
       <header className="flex flex-col gap-0.5 px-1 pt-1">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-xs uppercase tracking-wide text-muted">{t("home.overview")}</h2>
-        </div>
         <h1 className="text-sm font-semibold text-fg">{t("home.providersTitle")}</h1>
         <p className="text-[11px] text-fg-muted">
           {t("home.providersSubtitle")}
