@@ -2,6 +2,7 @@ pub mod cache;
 pub mod claude;
 pub mod codex;
 pub mod copilot;
+pub mod kimi;
 pub mod openrouter;
 
 use async_trait::async_trait;
@@ -55,12 +56,13 @@ impl CredentialRegistry {
         let codex = Arc::new(codex::CodexSource::default());
         let claude = Arc::new(claude::ClaudeSource::default());
         let copilot = Arc::new(copilot::CopilotSource);
+        let kimi = Arc::new(kimi::KimiSource::default());
         let openrouter = Arc::new(openrouter::OpenRouterSource);
 
         Self {
             codex: Arc::clone(&codex),
             claude: Arc::clone(&claude),
-            sources: vec![codex, claude, copilot, openrouter.clone()],
+            sources: vec![codex, claude, copilot, openrouter.clone(), kimi.clone()],
             writable_sources: vec![openrouter],
         }
     }

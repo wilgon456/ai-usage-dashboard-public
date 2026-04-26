@@ -1,0 +1,29 @@
+{
+  "defaultProviderOrder": ["codex", "copilot", "openrouter", "kimi"],
+  "providers": {
+    "codex": {
+      "displayName": "Codex",
+      "brandColor": "#bfff00",
+      "widgetSummary": "128K tokens today",
+      "demoPercentUsed": 42
+    },
+    "copilot": {
+      "displayName": "Copilot",
+      "brandColor": "#3b82f6",
+      "widgetSummary": "Monthly included usage",
+      "demoPercentUsed": 68
+    },
+    "openrouter": {
+      "displayName": "OpenRouter",
+      "brandColor": "#6366f1",
+      "widgetSummary": "$4.28 this month",
+      "demoPercentUsed": 23
+    },
+    "kimi": {
+      "displayName": "Kimi",
+      "brandColor": "#5b4bff",
+      "widgetSummary": "Connected via CLI",
+      "demoPercentUsed": 36
+    }
+  }
+}

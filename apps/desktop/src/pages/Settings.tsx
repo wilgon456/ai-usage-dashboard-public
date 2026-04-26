@@ -19,6 +19,7 @@ type TabId = "display" | "providers" | "system" | "notifications" | "about"
 interface SettingsProps {
   settings: AppSettings
   providerStates: ProviderSnapshotState[]
+  widgetSyncUrls: string[]
   onToggleProvider: (providerId: ProviderId) => void
   onThemeChange: (mode: ThemeMode) => void
   onLocaleChange: (locale: Locale) => void
@@ -28,6 +29,8 @@ interface SettingsProps {
   onNotificationThresholdsChange: (value: number[]) => void
   onTrayTargetChange: (value: ProviderId | "max" | "last-viewed") => void
   onStartOnLoginChange: (value: boolean) => void
+  onWidgetSyncEnabledChange: (value: boolean) => void
+  onWidgetSyncRelayUrlChange: (value: string) => void
   t: TFunction
 }
 
@@ -56,6 +59,7 @@ export function Settings(props: SettingsProps) {
   const {
     settings,
     providerStates,
+    widgetSyncUrls,
     onToggleProvider,
     onThemeChange,
     onLocaleChange,
@@ -65,6 +69,8 @@ export function Settings(props: SettingsProps) {
     onNotificationThresholdsChange,
     onTrayTargetChange,
     onStartOnLoginChange,
+    onWidgetSyncEnabledChange,
+    onWidgetSyncRelayUrlChange,
     t
   } = props
   const thresholdValues = [
@@ -194,6 +200,39 @@ export function Settings(props: SettingsProps) {
                 ariaLabel={t("settings.system.startOnLoginToggle")}
               />
             </Row>
+            <Row
+              label={t("settings.system.widgetSync")}
+              description={t("settings.system.widgetSyncDescription")}
+            >
+              <Switch
+                checked={settings.featureFlags.localApiEnabled}
+                onChange={onWidgetSyncEnabledChange}
+                ariaLabel={t("settings.system.widgetSyncToggle")}
+              />
+            </Row>
+            {settings.featureFlags.localApiEnabled ? (
+              <div className="flex flex-col gap-1 border-b border-border py-2 last:border-b-0">
+                <span className="text-xs text-fg">{t("settings.system.widgetRelayUrl")}</span>
+                <input
+                  value={settings.widgetSyncRelayUrl}
+                  onChange={(event) => onWidgetSyncRelayUrlChange(event.target.value)}
+                  placeholder="https://your-relay.example.com"
+                  className="min-w-0 rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] text-fg outline-none focus:border-page-accent"
+                />
+                <span className="text-xs text-fg">{t("settings.system.widgetSyncUrl")}</span>
+                {(widgetSyncUrls.length
+                  ? widgetSyncUrls
+                  : [`http://PC_IP:18790/widget-snapshot?token=${settings.widgetSyncToken || "..."}`]
+                ).map((url) => (
+                  <code
+                    key={url}
+                    className="max-w-full overflow-x-auto rounded-md border border-border bg-surface-2 px-2 py-1 text-[10px] text-fg-secondary"
+                  >
+                    {url}
+                  </code>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

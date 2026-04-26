@@ -1,171 +1,170 @@
 # AI Usage Dashboard
 
-AI 코딩 도구의 사용량과 연결 상태를 한곳에서 확인하는 크로스플랫폼 데스크톱 대시보드입니다. Tauri v2, React, Vite, TypeScript, Rust로 구성되어 있으며 macOS 메뉴바와 Windows 시스템 트레이에서 작게 띄워 쓰는 흐름을 목표로 합니다.
+Cross-platform AI usage dashboard for macOS and Windows.
 
-> 현재 공개 릴리스는 **Codex, Claude, GitHub Copilot, OpenRouter**를 대상으로 합니다. 각 서비스의 공식/비공식 로컬 인증 상태와 사용량 응답을 읽어 화면에 표시합니다.
+## Goal
 
-## 주요 기능
+Build a desktop app that shows AI subscription and usage data in one place without inheriting the full risk profile of an existing macOS-only fork.
 
-- **홈 대시보드**
-  - 연결된 AI 목록과 각 AI의 현재 상태를 카드로 표시합니다.
-  - `사용 / 잔여` 표시 옵션을 홈 카드의 퍼센트 숫자와 진행 바에 동일하게 적용합니다.
-  - 홈 상단은 간결하게 `홈` 제목만 보여줍니다.
+The product starts with a clean architecture:
 
-- **AI별 상세 화면**
-  - 각 AI의 상세 사용량을 별도 화면에서 확인합니다.
-  - 진행률, 잔여량, 리셋 시간, 캐시 상태, 인증 문제를 카드 형태로 표시합니다.
+- shared provider core
+- platform-specific desktop shell
+- explicit credential access boundaries
+- telemetry off by default
+- local API off by default
 
-- **트레이 / 메뉴바 앱 경험**
-  - macOS 메뉴바와 Windows 시스템 트레이 중심의 작은 데스크톱 앱입니다.
-  - 트레이 아이콘/라벨은 사용량 기준으로 갱신됩니다.
+## Product Scope
 
-- **사용량 알림**
-  - 설정한 임계값을 넘으면 데스크톱 알림을 보낼 수 있습니다.
-  - 기본 임계값은 80%, 95%입니다.
+### Phase 1
 
-- **연결 가이드**
-  - 각 provider의 CLI 로그인 또는 API 키 설정 흐름을 앱 안에서 안내합니다.
-  - OpenRouter API 키는 앱 안에서 저장/교체/삭제할 수 있습니다.
+- macOS desktop app
+- tray access and compact dashboard window
+- manual refresh
+- local encrypted settings
+- provider support for:
+  - Claude
+  - Codex
+  - Cursor
+  - Copilot
 
-## 이번 공개 업데이트에 포함된 개선
+### Phase 2
 
-- 홈 카드에서 `사용 / 잔여` 옵션 변경 시 퍼센트 숫자뿐 아니라 진행 바 너비도 함께 바뀌도록 수정했습니다.
-- 홈 화면의 `사용 AI 목록` 제목을 `홈`으로 정리하고, 중복된 작은 `홈` 라벨을 제거했습니다.
-- 상세 화면 문구를 `이 AI의 상세 사용량입니다.`로 변경했습니다.
-- 공개용 저장소에서 개인 식별값과 로컬 경로가 남지 않도록 코드와 git history를 정리했습니다.
-- 공개 릴리스 README를 한글 기준으로 다시 작성했습니다.
+- Windows desktop app
+- Windows tray integration
+- WebView2 shell
+- Windows credential storage support
+- shared provider engine reused from macOS build
 
-## 지원 provider
+## Non-Goals
 
-| Provider | 인증 방식 | 표시 정보 |
-| --- | --- | --- |
-| Codex | 로컬 Codex CLI OAuth 상태 | 세션/주간 사용률, 로컬 토큰 사용 요약 |
-| Claude | Claude Code OAuth 또는 지원되는 토큰 경로 | 사용량/윈도우별 진행률, 로컬 토큰 사용 요약 |
-| GitHub Copilot | `gh auth login` 기반 Copilot 접근 권한 | Copilot quota/usage 상태 |
-| OpenRouter | 앱 저장 API 키 또는 `OPENROUTER_API_KEY` | 크레딧 사용률과 잔액 |
+- browser app first
+- uncontrolled plugin execution
+- broad filesystem access for providers
+- telemetry by default
+- public local HTTP API by default
 
-> 참고: 사용량 API는 각 vendor의 변경 가능한 응답 계약에 의존할 수 있습니다. upstream 응답이 바뀌면 provider adapter 유지보수가 필요할 수 있습니다.
+## Architecture Direction
 
-## 프로젝트 구조
+The project is split into three layers:
+
+1. `core`
+   Shared domain models, provider contracts, refresh orchestration, caching, redaction, and settings schema.
+2. `providers`
+   Provider-specific auth readers and usage fetchers behind narrow interfaces.
+3. `desktop shell`
+   Tauri desktop app with platform adapters for tray, window behavior, startup, key storage, and updater.
+
+This lets us ship macOS first without locking the whole app to macOS-only implementation details.
+
+## Security Principles
+
+- Minimize credential access scope per provider.
+- Default provider adapters to read-only behavior.
+- Separate provider auth access from UI code.
+- Keep logs redacted and avoid raw token persistence.
+- Require explicit opt-in for telemetry, local API, and auto-update.
+- Avoid loading arbitrary third-party provider scripts at runtime.
+
+## Initial Deliverables
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/roadmap.md](docs/roadmap.md)
+- workspace scaffold for:
+  - `apps/desktop`
+  - `packages/core`
+  - `packages/platform`
+  - `packages/providers`
+
+## Development Plan
+
+### Milestone 0
+
+Define product scope, supported providers, security defaults, and shared data model.
+
+### Milestone 1
+
+Implement macOS MVP on the final architecture, not on a temporary fork-only layout.
+
+### Milestone 2
+
+Add Windows shell and credential adapters while keeping provider logic shared.
+
+### Milestone 3
+
+Harden packaging, update flow, diagnostics, and regression coverage.
+
+## Workspace Layout
 
 ```text
 apps/
-  desktop/             # Tauri 데스크톱 앱 + React UI
+  desktop/
 packages/
-  core/                # 공통 도메인 타입과 refresh orchestrator
-  platform/            # 플랫폼 추상화 계약
-  providers/           # provider adapter 계약과 구현
+  core/
+  platform/
+  providers/
 docs/
-  architecture.md
-  install.md
-  roadmap.md
 ```
 
-## 요구 사항
+## Getting Started
 
-개발 환경 기준:
+1. Install workspace dependencies with `npm install`.
+2. Run `npm run typecheck`.
+3. Run `npm run dev:desktop`.
+4. Run `npm run build` for a production bundle.
 
-- Node.js 20 이상 권장
-- npm
-- Rust stable toolchain
-- Tauri v2 빌드에 필요한 OS별 기본 도구
-  - macOS: Xcode Command Line Tools
-  - Windows: WebView2 / Visual Studio Build Tools 계열 환경
+## Mobile Widget Sync
 
-Provider별 인증을 실제로 테스트하려면 아래 로컬 상태가 필요합니다.
+The desktop app can publish a sanitized usage snapshot to a Cloudflare relay so an Android app/widget can display the latest provider usage.
 
-- Codex: 로컬 Codex CLI 로그인
-- Claude: Claude Code 로그인 또는 지원되는 OAuth/token 설정
-- Copilot: GitHub CLI 로그인 및 Copilot 사용 권한
-- OpenRouter: OpenRouter API 키
+- Detailed setup: [docs/widget-sync-setup.md](docs/widget-sync-setup.md)
+- Implementation notes: [docs/android-widget.md](docs/android-widget.md)
+- Public docs site: https://wilgon456.github.io/ai-usage-dashboard-public/
 
-## 빠른 시작
+Security notes:
 
-```bash
-git clone <repository-url>
-cd ai-usage-dashboard-public
-npm ci
-npm run typecheck
-npm run build
-```
+- Do not commit `apps/android/app/google-services.json` to a public repository.
+- Do not commit Firebase service-account JSON files or Cloudflare Worker secrets.
+- Treat the generated `/v1/snapshots/<pairId>?token=<syncToken>` URL as a secret.
 
-개발 모드로 데스크톱 앱을 실행하려면:
+## Agent-Friendly Setup
 
-```bash
-npm run dev:tauri
-```
+On a fresh machine, start here:
 
-## 자주 쓰는 명령
+1. Run `npm run setup`.
+2. If setup stops, inspect with `npm run doctor` or `npm run doctor:json`.
+3. Run `npm run smoke`.
+4. Start the app with `npm run dev:tauri`.
 
-| 목적 | 명령 |
-| --- | --- |
-| 의존성 설치 | `npm ci` |
-| 타입 체크 | `npm run typecheck` |
-| 프론트엔드 빌드 | `npm run build` |
-| Tauri 개발 실행 | `npm run dev:tauri` |
-| macOS DMG 빌드 | `npm run build:desktop:mac` |
-| Windows MSI 빌드 | `npm run build:desktop:win` |
-| Rust/Tauri 체크 | `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml` |
+Additional details are in [docs/agent-setup.md](docs/agent-setup.md).
 
-## 설치 / 패키징
+## Repository Status
 
-### macOS
+This repository now contains:
 
-```bash
-npm run build:desktop:mac
-```
+- the initial architecture and roadmap
+- a typed workspace for `core`, `platform`, and `providers`
+- a React/Vite desktop shell in `apps/desktop`
+- local-storage-backed development runtime for platform settings and demo credentials
+- a live Codex usage bridge that reads local Codex auth and token-count session logs
+- an initial Tauri v2 shell in `apps/desktop/src-tauri`
 
-생성된 DMG는 다음 경로 아래에 만들어집니다.
+## Current OpenAI Integration
 
-```text
-apps/desktop/src-tauri/target/release/bundle/dmg/
-```
+The current live integration is for `Codex`.
 
-### Windows
+- Auth source: `~/.codex/auth.json`
+- Remote usage source: ChatGPT/Codex backend usage endpoint
+- Token usage source: local Codex session JSONL logs in `~/.codex/sessions`
 
-```bash
-npm run build:desktop:win
-```
+This path is practical, but not based on a public stable OpenAI API contract. It should be treated as an implementation detail that may need updates if upstream behavior changes.
 
-생성된 MSI는 다음 경로 아래에 만들어집니다.
+## Native Shell Status
 
-```text
-apps/desktop/src-tauri/target/release/bundle/msi/
-```
+`apps/desktop/src-tauri` is now scaffolded for a Tauri v2 desktop runtime.
 
-GitHub Actions의 `Release` workflow는 태그 push 또는 수동 실행으로 macOS/Windows 아티팩트를 생성하도록 구성되어 있습니다.
+- Frontend: Vite + React
+- Native bridge: `get_codex_usage`
+- Dev entry: `npm run dev:tauri`
 
-## 보안 / 개인정보 모델
-
-- 이 저장소에는 실제 provider 토큰, API 키, 개인 로컬 경로를 커밋하지 않습니다.
-- OpenRouter 키 등 민감한 값은 로컬 앱 저장소, OS keychain, 환경변수, 또는 사용자의 로컬 CLI 인증 상태를 통해 읽습니다.
-- 공개 repo history도 개인 식별값이 남지 않도록 점검합니다.
-- 단, 사용자가 로컬에서 앱을 실행하면 각 provider CLI/설정 파일을 읽을 수 있으므로, 공유 PC에서는 provider 로그인 상태와 OS 계정 권한을 주의해야 합니다.
-
-## 공개 repo 테스트 체크리스트
-
-공개 저장소 기준으로 다음을 통과해야 합니다.
-
-```bash
-npm ci
-npm run typecheck
-npm run build
-cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-```
-
-개인정보/시크릿 점검은 최소한 아래 범주를 확인합니다.
-
-- 개인 이름/계정명/이메일
-- 사용자 홈 디렉터리를 포함한 로컬 절대 경로
-- API key, token, secret, private key 문자열
-- git history 내 과거 blob과 author/committer metadata
-
-## 문서
-
-- [Architecture](docs/architecture.md)
-- [Install](docs/install.md)
-- [Roadmap](docs/roadmap.md)
-
-## 라이선스
-
-이 공개 릴리스는 저장소에 포함된 라이선스와 각 의존성 라이선스를 따릅니다.
+The Tauri command path reads the same local Codex auth and session files as the dev-server bridge, so the app can move away from browser-only `/api` middleware.

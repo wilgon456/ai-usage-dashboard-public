@@ -8,6 +8,15 @@ coverage
 *.tsbuildinfo
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+apps/android/.gradle/
+apps/android/local.properties
+apps/android/app/src/main/res/raw/provider_registry.json
+apps/android/app/google-services.json
+apps/relay/.data/
+
+# Local Firebase / service-account material
+*firebase-adminsdk*.json
+service-account*.json
 
 # Claude Code local config
 .claude/

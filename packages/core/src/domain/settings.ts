@@ -1,4 +1,5 @@
 import type { ProviderId } from "./provider"
+import providerRegistry from "./provider-registry.json"
 
 export type Locale = "ko" | "en"
 export type ThemeMode = "system" | "light" | "dark"
@@ -26,15 +27,13 @@ export interface AppSettings {
   notificationThresholds: number[]
   trayTarget: "max" | "last-viewed" | ProviderId
   startOnLogin: boolean
+  widgetSyncPairId: string
+  widgetSyncToken: string
+  widgetSyncRelayUrl: string
   featureFlags: FeatureFlags
 }
 
-export const defaultProviderOrder: ProviderId[] = [
-  "codex",
-  "claude",
-  "copilot",
-  "openrouter"
-]
+export const defaultProviderOrder = providerRegistry.defaultProviderOrder as ProviderId[]
 
 export const defaultSettings: AppSettings = {
   providerOrder: defaultProviderOrder,
@@ -48,6 +47,9 @@ export const defaultSettings: AppSettings = {
   notificationThresholds: [80, 95],
   trayTarget: "last-viewed",
   startOnLogin: false,
+  widgetSyncPairId: "",
+  widgetSyncToken: "",
+  widgetSyncRelayUrl: "",
   featureFlags: {
     telemetryEnabled: false,
     localApiEnabled: false,

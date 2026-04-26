@@ -1,34 +1,213 @@
 # Architecture
 
-The project is split into three layers:
+## Objective
 
-1. `packages/core`
-   Shared domain types, snapshot models, settings, and refresh orchestration.
+Ship a desktop AI usage dashboard that reaches Windows without depending on macOS-only internals.
 
-2. `packages/providers`
-   Provider-specific adapters that fetch usage/account state and normalize it into the shared snapshot shape.
+## Why Not Build Directly on a Fork
 
-3. `apps/desktop`
-   Tauri desktop shell plus the React frontend used for tray / menu bar UI.
+Forking a macOS-first project is useful for reference and fast experiments, but not as the long-term base:
 
-## Design Goals
+- provider code often has broad filesystem, SQLite, keychain, and network access
+- macOS-specific panel and system behavior create Windows migration cost later
+- telemetry, updater, and local API defaults may not match this product's risk profile
+- reverse-engineered provider flows should be isolated behind explicit adapters
 
-- Cross-platform desktop-first architecture
-- Narrow provider auth boundaries
-- Read-only provider integrations wherever possible
-- Minimal telemetry by default
-- Small tray-focused user experience
+The final product should reuse ideas, not inherit all trust boundaries unchanged.
 
-## Runtime Notes
+## Target Structure
 
-- The frontend is React + Vite.
-- The native shell is Tauri v2.
-- Credentials are resolved through provider-specific native adapters.
-- Some providers use local CLI state rather than public stable APIs.
+```text
+ai_usage_dashboard/
+  README.md
+  docs/
+    architecture.md
+    roadmap.md
+  apps/
+    desktop/
+      src/
+      src-tauri/
+  packages/
+    core/
+    providers/
+    platform/
+```
 
-## Platform Direction
+## Layer Model
 
-- macOS: menu bar style workflow
-- Windows: system tray workflow and MSI packaging
+### 1. Core
 
-The codebase is organized so provider logic stays shared while platform-specific shell behavior can diverge where necessary.
+Responsibilities:
+
+- shared entities
+- usage snapshot model
+- refresh scheduler
+- provider registry
+- cache policy
+- settings schema
+- redaction policy
+
+Key rules:
+
+- no direct OS credential access
+- no tray or window code
+- deterministic output for provider inputs
+
+### 2. Providers
+
+Responsibilities:
+
+- resolve credentials through approved platform adapter
+- fetch remote usage data
+- normalize provider responses into shared snapshot model
+- report auth, network, and parsing errors in consistent form
+
+Key rules:
+
+- one adapter per provider
+- no arbitrary script loading
+- no unrestricted filesystem traversal
+- write access disabled unless a provider explicitly requires token refresh persistence
+
+### 3. Platform
+
+Responsibilities:
+
+- credential storage bridge
+- file path resolution
+- secure local cache path handling
+- startup integration
+- OS-specific policy toggles
+
+Platform adapters:
+
+- `macos`
+- `windows`
+
+### 4. Desktop Shell
+
+Responsibilities:
+
+- tray and window UX
+- settings UI
+- provider refresh actions
+- log access and diagnostics
+
+The shell consumes `core` and `providers` through typed interfaces only.
+
+## Credential Boundary
+
+Credential handling is the main design constraint.
+
+Rules:
+
+- UI never reads raw tokens directly.
+- Provider adapters request credentials through a platform credential interface.
+- Credentials are returned only for the provider currently being refreshed.
+- Logs must never include raw credential values.
+- Refresh token writes must go through explicit persistence methods, not direct file writes from UI code.
+
+Proposed interfaces:
+
+```ts
+type CredentialHandle =
+  | { kind: "oauth"; accessToken: string; refreshToken?: string }
+  | { kind: "apiKey"; apiKey: string }
+
+interface CredentialStore {
+  load(providerId: string): Promise<CredentialHandle | null>
+  save(providerId: string, credential: CredentialHandle): Promise<void>
+  clear(providerId: string): Promise<void>
+}
+```
+
+## OS Strategy
+
+### macOS
+
+Use:
+
+- tray icon
+- compact dashboard window
+- Keychain-backed credential store
+
+Avoid locking app behavior to:
+
+- NSPanel-only assumptions
+- private API unless clearly required
+
+### Windows
+
+Use:
+
+- system tray
+- compact dashboard window
+- Credential Manager or DPAPI-backed storage
+- WebView2-supported Tauri shell
+
+Design constraint:
+
+- every macOS-only behavior must have a shell-level fallback before the app is considered stable
+
+## Local API Strategy
+
+Default:
+
+- disabled
+
+If later enabled:
+
+- bind to loopback only
+- explicit user opt-in
+- minimal response shape
+- no permissive wildcard access without a clear reason
+- tokenless read path only
+
+## Telemetry Strategy
+
+Default:
+
+- disabled
+
+If later enabled:
+
+- opt-in only
+- no provider identifiers that expose sensitive account data
+- no usage content, token payloads, file paths, or auth metadata
+
+## Updater Strategy
+
+Default for early development:
+
+- off in local builds
+
+Release requirement:
+
+- signed artifacts only
+- platform-specific update verification
+- rollback path documented before enablement
+
+## Testing Strategy
+
+### Core
+
+- unit tests for snapshot normalization
+- redaction tests
+- settings schema tests
+
+### Providers
+
+- fixture-based response parsing
+- credential resolution tests
+- stale token and refresh tests
+
+### Desktop
+
+- smoke tests for tray, settings, refresh
+- packaging checks on macOS and Windows
+
+## First Build Decision
+
+Start on the final layered architecture immediately, even if the first runnable app is macOS-only.
+
+That keeps Windows as an additive shell task instead of a rewrite.

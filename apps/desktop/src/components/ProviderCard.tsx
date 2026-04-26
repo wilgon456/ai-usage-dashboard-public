@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  MetricLine,
   ProviderCardState,
   ProviderSnapshotState
 } from "@ai-usage-dashboard/core"
@@ -11,6 +12,41 @@ import { providerLogo } from "../lib/provider-logos"
 import { EmptyStateInline } from "./EmptyStateInline"
 import { MetricLineView } from "./MetricLineView"
 import { Badge } from "./ui/Badge"
+
+function compactTokenLine(state: ProviderSnapshotState): Extract<
+  MetricLine,
+  { type: "text" }
+> | undefined {
+  const lines = compactTokenLines(state)
+  return (
+    lines.find((line) => !/^0(?:\.0)?\s+tokens$/i.test(line.value.trim())) ?? lines[0]
+  )
+}
+
+function compactTokenLines(state: ProviderSnapshotState): Extract<
+  MetricLine,
+  { type: "text" }
+>[] {
+  return (
+    state.snapshot?.lines.filter(
+      (line): line is Extract<MetricLine, { type: "text" }> =>
+        line.type === "text" &&
+        (line.label === "Today" ||
+          line.label === "Yesterday" ||
+          line.label === "Last 30 Days") &&
+        /token/i.test(line.value)
+    ) ?? []
+  )
+}
+
+function compactStatusLines(state: ProviderSnapshotState) {
+  return (
+    state.snapshot?.lines.filter(
+      (line): line is Extract<MetricLine, { type: "text" }> =>
+        line.type === "text" || line.type === "badge" || line.type === "progress"
+    ).slice(0, 2) ?? []
+  )
+}
 
 function stateBadge(state: ProviderCardState, t: TFunction) {
   if (state.kind === "error") return <Badge tone="danger">{t("card.issue")}</Badge>
@@ -81,24 +117,26 @@ function CompactSummary({
   const percentLabel = max == null ? t("common.notAvailable") : `${Math.round(shownRatio * 100)}%`
 
   return (
-    <div className="flex items-center gap-3">
-      <ProviderLogo providerId={state.provider.id} accent={accent} compact />
-      <span className="min-w-0 shrink-0 truncate text-sm font-semibold text-fg">
-        {state.provider.displayName}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
-          <span>{label}</span>
-          <span className="text-fg">{percentLabel}</span>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <ProviderLogo providerId={state.provider.id} accent={accent} compact />
+        <span className="min-w-0 shrink-0 truncate text-sm font-semibold text-fg">
+          {state.provider.displayName}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
+            <span>{label}</span>
+            <span className="text-fg">{percentLabel}</span>
+          </div>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
+            <div
+              className="h-full rounded-full transition-[width]"
+              style={{ width: `${shownRatio * 100}%`, backgroundColor: accent }}
+            />
+          </div>
         </div>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
-          <div
-            className="h-full rounded-full transition-[width]"
-            style={{ width: `${shownRatio * 100}%`, backgroundColor: accent }}
-          />
-        </div>
+        {stateBadge(cardState, t)}
       </div>
-      {stateBadge(cardState, t)}
     </div>
   )
 }
@@ -114,6 +152,7 @@ function CompactStatusSummary({
   accent: string
   t: TFunction
 }) {
+  const lines = compactStatusLines(state)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
@@ -124,7 +163,7 @@ function CompactStatusSummary({
         {stateBadge(cardState, t)}
       </div>
       <div className="flex flex-col gap-1.5">
-        {cardState.snapshot.lines.slice(0, 2).map((line, index) => (
+        {lines.map((line, index) => (
           <MetricLineView
             key={`${line.label}-${index}`}
             line={line}

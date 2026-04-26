@@ -1,5 +1,7 @@
 export * from "./contracts"
+export * from "./lib/tauri-bridge"
 export * from "./providers/claude"
 export * from "./providers/codex"
 export * from "./providers/copilot"
 export * from "./providers/openrouter"
+export * from "./providers/kimi"

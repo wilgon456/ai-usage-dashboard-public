@@ -8,12 +8,23 @@
   ],
   "scripts": {
     "build": "npm run typecheck && npm run build --workspace @ai-usage-dashboard/desktop",
+    "build:android": "JAVA_HOME=/usr/local/opt/openjdk ANDROID_HOME=/usr/local/share/android-commandlinetools gradle -p apps/android assembleDebug",
     "build:desktop:mac": "npm run tauri:build:mac --workspace @ai-usage-dashboard/desktop",
     "build:desktop:win": "npm run tauri:build:win --workspace @ai-usage-dashboard/desktop",
     "clean": "node -e \"const fs=require('fs'); ['packages/core/dist','packages/platform/dist','packages/providers/dist','apps/desktop/dist'].forEach((path)=>fs.rmSync(path,{recursive:true,force:true}))\"",
     "dev:desktop": "npm run dev --workspace @ai-usage-dashboard/desktop",
+    "dev:relay": "npm run start --workspace @ai-usage-dashboard/relay",
+    "dev:relay:cf": "npm run dev --workspace @ai-usage-dashboard/relay-cloudflare",
     "dev:tauri": "npm run tauri:dev --workspace @ai-usage-dashboard/desktop",
+    "deploy:relay:cf": "npm run deploy --workspace @ai-usage-dashboard/relay-cloudflare",
+    "preview:android-widget": "node scripts/render-widget-preview.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:json": "node scripts/doctor.mjs --json",
     "lint": "tsc -b --pretty false",
+    "setup": "node scripts/setup-agent.mjs",
+    "setup:macos": "bash scripts/setup-macos.sh",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
+    "smoke": "npm run typecheck && cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "typecheck": "tsc -b --pretty false"
   },
   "devDependencies": {

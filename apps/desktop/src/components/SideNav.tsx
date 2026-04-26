@@ -6,7 +6,7 @@ import { openExternal } from "../lib/open-url"
 import { providerLogo } from "../lib/provider-logos"
 import { useUiStore, type ActiveView } from "../stores/ui-store"
 
-const ISSUES_URL = "https://github.com/ai-usage-dashboard/ai-usage-dashboard/issues"
+const ISSUES_URL = "https://github.com/wilgon456/ai_usage_dashboard/issues"
 
 export function SideNav({
   providers,

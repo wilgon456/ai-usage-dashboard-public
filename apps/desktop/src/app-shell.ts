@@ -15,9 +15,9 @@ import type {
   SettingsStore
 } from "@ai-usage-dashboard/platform"
 import {
-  claudeAdapter,
   codexAdapter,
   copilotAdapter,
+  kimiAdapter,
   openrouterAdapter
 } from "@ai-usage-dashboard/providers"
 import type { ProviderAdapter } from "@ai-usage-dashboard/providers"
@@ -32,9 +32,9 @@ const CREDENTIAL_STORAGE_PREFIX = "ai-usage-dashboard.credential."
 
 const providerAdapters: ProviderAdapter[] = [
   codexAdapter,
-  claudeAdapter,
   copilotAdapter,
-  openrouterAdapter
+  openrouterAdapter,
+  kimiAdapter
 ]
 
 type ResolvedPlatform = "macos" | "windows"
@@ -68,10 +68,6 @@ function isLocale(value: string): value is Locale {
 }
 
 async function invokeTauri<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
-  if (!(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
-    return null
-  }
-
   try {
     const module = await import("@tauri-apps/api/core")
     return module.invoke<T>(command, args)
@@ -124,10 +120,10 @@ class BrowserCredentialStore implements CredentialStore {
 class BrowserSettingsStore implements SettingsStore {
   async load() {
     const saved = readJson<Record<string, unknown>>(SETTINGS_STORAGE_KEY)
-    const merged = {
+    const merged = applyWidgetSyncEnvDefaults({
       ...defaultSettings,
       ...normalizePreferencesPayload(saved)
-    } as AppSettings
+    } as AppSettings)
     if (!isLocale(merged.locale)) {
       merged.locale = defaultSettings.locale
     }
@@ -146,6 +142,29 @@ class BrowserSettingsStore implements SettingsStore {
   }
 }
 
+function applyWidgetSyncEnvDefaults(settings: AppSettings): AppSettings {
+  const env = import.meta.env as {
+    VITE_WIDGET_SYNC_PAIR_ID?: string
+    VITE_WIDGET_SYNC_TOKEN?: string
+    VITE_WIDGET_SYNC_RELAY_URL?: string
+  }
+
+  if (!env.VITE_WIDGET_SYNC_PAIR_ID || !env.VITE_WIDGET_SYNC_TOKEN) {
+    return settings
+  }
+
+  return {
+    ...settings,
+    widgetSyncPairId: env.VITE_WIDGET_SYNC_PAIR_ID,
+    widgetSyncToken: env.VITE_WIDGET_SYNC_TOKEN,
+    widgetSyncRelayUrl: env.VITE_WIDGET_SYNC_RELAY_URL || settings.widgetSyncRelayUrl,
+    featureFlags: {
+      ...settings.featureFlags,
+      localApiEnabled: true
+    }
+  }
+}
+
 function createPlatformRuntime(target: ResolvedPlatform): PlatformRuntime {
   return {
     info: {
@@ -159,9 +178,9 @@ function createPlatformRuntime(target: ResolvedPlatform): PlatformRuntime {
   }
 }
 
-function createProviderRuntime(platform: PlatformRuntime) {
+function createProviderRuntime(platform: PlatformRuntime, adapters = providerAdapters) {
   return new RefreshOrchestrator(
-    providerAdapters.map((adapter) => ({
+    adapters.map((adapter) => ({
       definition: adapter.definition,
       refresh: (options) => adapter.probe(platform, options)
     }))
@@ -176,7 +195,13 @@ function toProviderState(
   definition: ProviderDefinition,
   result:
     | { ok: true; snapshot: UsageSnapshot }
-    | { ok: false; providerId: ProviderId; reason: string; retryable: boolean }
+    | {
+        ok: false
+        providerId: ProviderId
+        reason: string
+        retryable: boolean
+        errorKind?: "auth" | "network" | "rate_limited" | "parse" | "unexpected"
+      }
 ): ProviderSnapshotState {
   if (result.ok) {
     return {
@@ -187,16 +212,17 @@ function toProviderState(
 
   return {
     provider: definition,
-    error: result.reason.includes("credentials")
-      ? {
-          code: "missing_credentials",
-          message: result.reason
-        }
-      : {
-          code: "unexpected",
-          message: result.reason,
-          retryable: result.retryable
-        }
+    error:
+      result.errorKind === "auth"
+        ? {
+            code: "missing_credentials",
+            message: result.reason
+          }
+        : {
+            code: "unexpected",
+            message: result.reason,
+            retryable: result.errorKind === "rate_limited" ? true : result.retryable
+          }
   }
 }
 
@@ -257,6 +283,9 @@ export interface DesktopShell {
   refreshAll(options: ProbeOptions): Promise<ProviderSnapshotState[]>
   updatePreferences(partial: Partial<AppSettings>): Promise<AppSettings>
   toggleProvider(providerId: ProviderId): Promise<AppSettings>
+  configureWidgetSync(config: { enabled: boolean; token: string }): Promise<void>
+  updateWidgetSnapshot(snapshot: unknown): Promise<void>
+  getWidgetSyncUrls(token: string): Promise<string[]>
 }
 
 export async function bootDesktopShell(): Promise<DesktopShell> {
@@ -269,16 +298,17 @@ export async function bootDesktopShell(): Promise<DesktopShell> {
   let platform = createPlatformRuntime(resolvedPlatform)
 
   async function refreshAll(options: ProbeOptions) {
-    const orchestrator = createProviderRuntime(platform)
+    const enabled = enabledProviderIds(settings)
+    const enabledAdapters = providerAdapters.filter((adapter) => enabled.includes(adapter.definition.id))
+    const orchestrator = createProviderRuntime(platform, enabledAdapters)
     const refreshed = await orchestrator.refreshAll(options)
     const refreshedById = new Map(
       refreshed.map((result) => [result.ok ? result.snapshot.providerId : result.providerId, result])
     )
 
-    const enabled = enabledProviderIds(settings)
     const states: ProviderSnapshotState[] = []
 
-    for (const definition of orchestrator.listProviders()) {
+    for (const definition of providerAdapters.map((adapter) => adapter.definition)) {
       if (!enabled.includes(definition.id)) {
         states.push(await buildIdleState(definition, enabled, platform))
         continue
@@ -335,6 +365,15 @@ export async function bootDesktopShell(): Promise<DesktopShell> {
         providerOrder,
         disabledProviders
       })
+    },
+    async configureWidgetSync(config) {
+      await invokeTauri<void>("set_widget_sync_config", { config })
+    },
+    async updateWidgetSnapshot(snapshot) {
+      await invokeTauri<void>("update_widget_snapshot", { snapshot })
+    },
+    async getWidgetSyncUrls(token) {
+      return (await invokeTauri<string[]>("get_widget_sync_urls", { token })) ?? []
     }
   }
 }

@@ -69,10 +69,7 @@ fn load_token_from_config_files() -> Option<String> {
 }
 
 fn load_gh_auth_token_command() -> Option<String> {
-    let output = Command::new("gh")
-        .args(["auth", "token"])
-        .output()
-        .ok()?;
+    let output = Command::new("gh").args(["auth", "token"]).output().ok()?;
     if !output.status.success() {
         return None;
     }

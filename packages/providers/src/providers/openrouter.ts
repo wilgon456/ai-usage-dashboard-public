@@ -1,14 +1,6 @@
 import type { MetricLine } from "@ai-usage-dashboard/core"
 import type { ProbeOptions, ProviderAdapter } from "../contracts"
-
-async function invokeTauri<T>(command: string, args?: unknown): Promise<T | null> {
-  if (!(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
-    return null
-  }
-
-  const mod = await import("@tauri-apps/api/core")
-  return mod.invoke<T>(command, args as Record<string, unknown> | undefined)
-}
+import { classifyProviderError, invokeTauri } from "../lib/tauri-bridge"
 
 interface UsagePayload {
   providerId: "openrouter"
@@ -37,11 +29,13 @@ export const openrouterAdapter: ProviderAdapter = {
     try {
       const payload = await invokeTauri<UsagePayload>("get_openrouter_usage", options)
       if (!payload) {
+        const failure = classifyProviderError("Tauri runtime not available.")
         return {
           ok: false,
           providerId: "openrouter",
           reason: "Tauri runtime not available.",
-          retryable: false
+          retryable: false,
+          errorKind: failure.errorKind
         }
       }
 
@@ -57,11 +51,13 @@ export const openrouterAdapter: ProviderAdapter = {
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
+      const failure = classifyProviderError(reason)
       return {
         ok: false,
         providerId: "openrouter",
         reason,
-        retryable: !/not logged in|not set|invalid|expired/i.test(reason)
+        retryable: failure.retryable,
+        errorKind: failure.errorKind
       }
     }
   }

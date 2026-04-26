@@ -52,12 +52,14 @@ pub async fn get_codex_usage(
         .load_account_id()
         .await
         .map_err(map_codex_credential_error)?;
+    let credential_fingerprint = super::fetch_state::credential_fingerprint(&access_token);
 
     let now_ms = super::fetch_state::current_time_ms();
-    if let Some(payload) = super::fetch_state::read_cached_or_stalled_payload(
+    if let Some(payload) = super::fetch_state::read_cached_or_stale_payload(
         fetch_state(),
         now_ms,
         refresh_interval_minutes,
+        Some(&credential_fingerprint),
         force,
     )? {
         return Ok(payload);
@@ -121,7 +123,13 @@ pub async fn get_codex_usage(
         source: "remote",
     };
 
-    super::fetch_state::record_success(fetch_state(), &payload, now_ms, refresh_interval_minutes)?;
+    super::fetch_state::record_success(
+        fetch_state(),
+        &payload,
+        now_ms,
+        refresh_interval_minutes,
+        Some(&credential_fingerprint),
+    )?;
 
     Ok(payload)
 }

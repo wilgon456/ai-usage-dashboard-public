@@ -1,4 +1,4 @@
-export type ProviderId = "claude" | "codex" | "copilot" | "openrouter"
+export type ProviderId = "claude" | "codex" | "copilot" | "openrouter" | "kimi"
 
 export type CredentialHandle =
   | {

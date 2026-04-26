@@ -57,12 +57,14 @@ pub async fn get_openrouter_usage(
         Credential::ApiKey(key) => key,
         Credential::OAuth { .. } => return Err("OpenRouter credential kind mismatch".to_string()),
     };
+    let credential_fingerprint = super::fetch_state::credential_fingerprint(&api_key);
 
     let now_ms = super::fetch_state::current_time_ms();
-    if let Some(payload) = super::fetch_state::read_cached_or_stalled_payload(
+    if let Some(payload) = super::fetch_state::read_cached_or_stale_payload(
         fetch_state(),
         now_ms,
         refresh_interval_minutes,
+        Some(&credential_fingerprint),
         force,
     )? {
         return Ok(payload);
@@ -101,11 +103,21 @@ pub async fn get_openrouter_usage(
         ));
     }
 
-    let key_payload: OpenRouterResponse = response.json().await.map_err(|error| error.to_string())?;
+    let key_payload: OpenRouterResponse =
+        response.json().await.map_err(|error| error.to_string())?;
     let credits_payload = fetch_openrouter_credits(&api_key).await.ok();
-    let payload = build_usage_payload(key_payload.data, credits_payload.as_ref().map(|value| &value.data));
+    let payload = build_usage_payload(
+        key_payload.data,
+        credits_payload.as_ref().map(|value| &value.data),
+    );
 
-    super::fetch_state::record_success(fetch_state(), &payload, now_ms, refresh_interval_minutes)?;
+    super::fetch_state::record_success(
+        fetch_state(),
+        &payload,
+        now_ms,
+        refresh_interval_minutes,
+        Some(&credential_fingerprint),
+    )?;
 
     Ok(payload)
 }
@@ -140,7 +152,9 @@ fn build_usage_payload(
                 .or_else(|| data.limit_remaining.map(|remaining| remaining + data.usage))
                 .filter(|limit| *limit > 0.0)
         });
-    let computed_usage = credits.map(|credits| credits.total_usage).unwrap_or(data.usage);
+    let computed_usage = credits
+        .map(|credits| credits.total_usage)
+        .unwrap_or(data.usage);
     let computed_remaining = computed_limit.map(|limit| (limit - computed_usage).max(0.0));
 
     if let Some(limit) = computed_limit {

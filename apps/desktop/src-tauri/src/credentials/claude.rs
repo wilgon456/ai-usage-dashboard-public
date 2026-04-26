@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Mutex;
 use tempfile::NamedTempFile;
 use time::{Duration, OffsetDateTime};
 
+const CLAUDE_CODE_OAUTH_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 const KEYCHAIN_SERVICE_PREFIX: &str = "Claude Code";
 const PROD_BASE_API_URL: &str = "https://api.anthropic.com";
 const PROD_REFRESH_URL: &str = "https://platform.claude.com/v1/oauth/token";
@@ -19,6 +22,8 @@ const PROD_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const NON_PROD_CLIENT_ID: &str = "22422756-60c9-4084-8eb7-27705fd5cf9a";
 const SCOPES: &str =
     "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+
+static CLAUDE_REFRESH_COOLDOWN_UNTIL: Mutex<Option<OffsetDateTime>> = Mutex::new(None);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ClaudeOauthConfig {
@@ -138,12 +143,14 @@ impl CredentialSource for ClaudeSource {
             .and_then(StoredExpiry::to_offset_datetime);
 
         if !credentials.inference_only && expires_at.as_ref().is_some_and(is_expired) {
-            access_token = refresh_access_token(&mut credentials).await?;
-            expires_at = credentials
-                .oauth
-                .expires_at
-                .as_ref()
-                .and_then(StoredExpiry::to_offset_datetime);
+            if !refresh_cooldown_active() {
+                access_token = refresh_access_token(&mut credentials).await?;
+                expires_at = credentials
+                    .oauth
+                    .expires_at
+                    .as_ref()
+                    .and_then(StoredExpiry::to_offset_datetime);
+            }
         }
 
         Ok(Credential::OAuth {
@@ -202,10 +209,28 @@ pub(crate) fn oauth_config() -> ClaudeOauthConfig {
 }
 
 fn resolve_credentials() -> Result<ClaudeResolvedCredentials, CredentialError> {
-    let env_token = trim_to_configured(std::env::var("CLAUDE_CODE_OAUTH_TOKEN").ok());
-    if let Some(env_token) = env_token {
+    let subscription_token = load_subscription_token();
+    let stored = load_stored_credentials()?;
+    if let Some(stored) = stored {
+        let mut oauth = stored.oauth;
+        let inference_only = if let Some(subscription_token) = subscription_token {
+            oauth.access_token = Some(subscription_token);
+            true
+        } else {
+            false
+        };
+
+        return Ok(ClaudeResolvedCredentials {
+            oauth,
+            source: Some(stored.source),
+            full_data: Some(stored.full_data),
+            inference_only,
+        });
+    }
+
+    if let Some(subscription_token) = subscription_token {
         let oauth = ClaudeOauth {
-            access_token: Some(env_token),
+            access_token: Some(subscription_token),
             ..Default::default()
         };
         return Ok(ClaudeResolvedCredentials {
@@ -216,17 +241,50 @@ fn resolve_credentials() -> Result<ClaudeResolvedCredentials, CredentialError> {
         });
     }
 
-    let stored = load_stored_credentials()?;
-    if let Some(stored) = stored {
-        return Ok(ClaudeResolvedCredentials {
-            oauth: stored.oauth,
-            source: Some(stored.source),
-            full_data: Some(stored.full_data),
-            inference_only: false,
+    Err(CredentialError::NotConfigured)
+}
+
+pub(crate) fn subscription_token_available() -> bool {
+    load_subscription_token().is_some()
+}
+
+fn load_subscription_token() -> Option<String> {
+    load_subscription_token_from_env().or_else(load_subscription_token_from_login_shell)
+}
+
+fn load_subscription_token_from_env() -> Option<String> {
+    trim_to_configured(std::env::var(CLAUDE_CODE_OAUTH_TOKEN_ENV).ok())
+}
+
+fn load_subscription_token_from_login_shell() -> Option<String> {
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            if cfg!(windows) {
+                "powershell".to_string()
+            } else {
+                "/bin/zsh".to_string()
+            }
         });
+    let output = if cfg!(windows) {
+        Command::new(shell)
+            .args(["-NoProfile", "-Command", "$env:CLAUDE_CODE_OAUTH_TOKEN"])
+            .output()
+            .ok()?
+    } else {
+        Command::new(shell)
+            .args(["-lc", "printenv CLAUDE_CODE_OAUTH_TOKEN"])
+            .output()
+            .ok()?
+    };
+
+    if !output.status.success() {
+        return None;
     }
 
-    Err(CredentialError::NotConfigured)
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    trim_to_configured(Some(stdout))
 }
 
 fn load_stored_credentials() -> Result<Option<ClaudeStoredCredentials>, CredentialError> {
@@ -325,6 +383,14 @@ async fn refresh_access_token(
         .await
         .map_err(|error| CredentialError::RefreshFailed(error.to_string()))?;
 
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = parse_retry_after_seconds(response.headers()).unwrap_or(60);
+        set_refresh_cooldown(retry_after);
+        return Err(CredentialError::RefreshFailed(format!(
+            "rate_limited:{retry_after}"
+        )));
+    }
+
     if response.status() == reqwest::StatusCode::BAD_REQUEST
         || response.status() == reqwest::StatusCode::UNAUTHORIZED
     {
@@ -361,7 +427,53 @@ async fn refresh_access_token(
     credentials.oauth.expires_at = Some(StoredExpiry::Iso(format_rfc3339(expires_at)?));
 
     persist_credentials(credentials)?;
+    clear_refresh_cooldown();
     Ok(access_token)
+}
+
+fn refresh_cooldown_active() -> bool {
+    let Ok(guard) = CLAUDE_REFRESH_COOLDOWN_UNTIL.lock() else {
+        return false;
+    };
+    guard
+        .as_ref()
+        .is_some_and(|until| *until > OffsetDateTime::now_utc())
+}
+
+fn set_refresh_cooldown(seconds: i64) {
+    if let Ok(mut guard) = CLAUDE_REFRESH_COOLDOWN_UNTIL.lock() {
+        *guard = Some(OffsetDateTime::now_utc() + Duration::seconds(seconds.clamp(60, 3600)));
+    }
+}
+
+fn clear_refresh_cooldown() {
+    if let Ok(mut guard) = CLAUDE_REFRESH_COOLDOWN_UNTIL.lock() {
+        *guard = None;
+    }
+}
+
+fn parse_retry_after_seconds(headers: &reqwest::header::HeaderMap) -> Option<i64> {
+    let raw = headers
+        .get("retry-after")
+        .or_else(|| headers.get("Retry-After"))?
+        .to_str()
+        .ok()?
+        .trim()
+        .to_string();
+
+    if raw.is_empty() {
+        return None;
+    }
+
+    let seconds = if let Ok(seconds) = raw.parse::<i64>() {
+        seconds
+    } else {
+        let timestamp =
+            OffsetDateTime::parse(&raw, &time::format_description::well_known::Rfc2822).ok()?;
+        timestamp.unix_timestamp() - OffsetDateTime::now_utc().unix_timestamp()
+    };
+
+    Some(seconds.clamp(60, 3600))
 }
 
 fn persist_credentials(credentials: &ClaudeResolvedCredentials) -> Result<(), CredentialError> {

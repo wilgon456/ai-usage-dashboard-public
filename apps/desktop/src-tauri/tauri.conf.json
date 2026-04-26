@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AI Usage Dashboard",
   "version": "0.1.0",
-  "identifier": "app.ai-usage-dashboard.desktop",
+  "identifier": "com.wilgon456.ai-usage-dashboard",
   "build": {
     "beforeDevCommand": "npm run dev --workspace @ai-usage-dashboard/desktop -- --host 127.0.0.1 --port 4173",
     "beforeBuildCommand": "npm run build --workspace @ai-usage-dashboard/desktop",
@@ -37,9 +37,9 @@
       "msi"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "Track Codex, Claude, Copilot, OpenRouter usage.",
+    "shortDescription": "Track Codex, Copilot, OpenRouter, and Kimi usage.",
     "longDescription": "A menu bar / system tray dashboard for AI coding assistant usage.",
-    "copyright": "© 2026 AI Usage Dashboard contributors",
+    "copyright": "© 2026 AI Usage Dashboard Contributors",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

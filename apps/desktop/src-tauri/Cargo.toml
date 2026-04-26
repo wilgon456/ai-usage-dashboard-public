@@ -2,7 +2,7 @@
 name = "ai_usage_dashboard"
 version = "0.1.0"
 description = "Cross-platform AI usage dashboard"
-authors = ["AI Usage Dashboard contributors"]
+authors = ["AI Usage Dashboard Contributors"]
 edition = "2024"
 
 [lib]
@@ -22,6 +22,7 @@ png = "0.17"
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tempfile = "3"
 thiserror = "1"

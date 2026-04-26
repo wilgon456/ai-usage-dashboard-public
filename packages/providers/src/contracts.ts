@@ -5,9 +5,17 @@ import type {
 } from "@ai-usage-dashboard/core"
 import type { PlatformRuntime } from "@ai-usage-dashboard/platform"
 
+export type ProviderErrorKind = "auth" | "network" | "rate_limited" | "parse" | "unexpected"
+
 export type ProviderProbeResult =
   | { ok: true; snapshot: UsageSnapshot }
-  | { ok: false; providerId: ProviderId; reason: string; retryable: boolean }
+  | {
+      ok: false
+      providerId: ProviderId
+      reason: string
+      retryable: boolean
+      errorKind: ProviderErrorKind
+    }
 
 export interface ProbeOptions {
   refreshIntervalMinutes: number

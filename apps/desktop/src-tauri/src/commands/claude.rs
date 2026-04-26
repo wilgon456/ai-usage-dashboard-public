@@ -1,11 +1,12 @@
 use super::shared::{self, MetricFormat, MetricLinePayload, UsagePayload};
+use crate::credentials::claude::{oauth_config, subscription_token_available};
 use crate::credentials::{Credential, CredentialError, CredentialRegistry};
-use crate::credentials::claude::oauth_config;
 use dirs::home_dir;
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
-use std::fs;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::Manager;
@@ -72,9 +73,7 @@ fn debug_log_enabled() -> bool {
 }
 
 fn env_oauth_token_active() -> bool {
-    std::env::var("CLAUDE_CODE_OAUTH_TOKEN")
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
+    subscription_token_available()
 }
 
 fn preview_text(value: &str, max_chars: usize) -> &str {
@@ -99,7 +98,32 @@ pub async fn get_claude_usage(
     let source = registry
         .get("claude")
         .ok_or_else(|| "Claude credential source missing".to_string())?;
-    let credential = source.load().await.map_err(map_claude_credential_error)?;
+    let credential = match source.load().await {
+        Ok(credential) => credential,
+        Err(CredentialError::RefreshFailed(message)) if message.starts_with("rate_limited:") => {
+            let retry_after = parse_rate_limited_seconds(&message);
+            let local_usage = load_local_usage_summary().ok();
+            let quota_usage = load_quota_cache_usage().ok();
+            let plan = registry
+                .claude()
+                .load_plan_label()
+                .await
+                .map_err(map_claude_credential_error)?;
+            return Ok(build_local_usage_payload(
+                plan.or_else(|| env_oauth_token_active().then(|| "API".to_string())),
+                quota_usage.as_ref(),
+                local_usage.as_ref(),
+                env_oauth_token_active()
+                    .then(|| ("Mode".to_string(), "API".to_string(), "good".to_string())),
+                Some((
+                    "Status".to_string(),
+                    format_refresh_rate_limited_value(retry_after),
+                    "warn".to_string(),
+                )),
+            ));
+        }
+        Err(error) => return Err(map_claude_credential_error(error)),
+    };
     let access_token = match credential {
         Credential::OAuth { access_token, .. } => access_token,
         Credential::ApiKey(_) => return Err("Claude credential kind mismatch".to_string()),
@@ -109,12 +133,15 @@ pub async fn get_claude_usage(
         .load_plan_label()
         .await
         .map_err(map_claude_credential_error)?;
+    let credential_fingerprint = super::fetch_state::credential_fingerprint(&access_token);
+    let quota_usage = load_quota_cache_usage().ok();
 
     let now_ms = super::fetch_state::current_time_ms();
-    if let Some(payload) = super::fetch_state::read_cached_or_stalled_payload(
+    if let Some(payload) = super::fetch_state::read_cached_or_stale_payload(
         fetch_state(),
         now_ms,
         refresh_interval_minutes,
+        Some(&credential_fingerprint),
         force,
     )? {
         return Ok(payload);
@@ -148,6 +175,7 @@ pub async fn get_claude_usage(
         if env_oauth_token_active() && body_text.contains("scope requirement user:profile") {
             return Ok(build_local_usage_payload(
                 Some("API".to_string()),
+                quota_usage.as_ref(),
                 local_usage.as_ref(),
                 Some(("Mode".to_string(), "API".to_string(), "good".to_string())),
                 Some((
@@ -180,6 +208,7 @@ pub async fn get_claude_usage(
 
         return Ok(build_local_usage_payload(
             plan.or_else(|| env_oauth_token_active().then(|| "API".to_string())),
+            quota_usage.as_ref(),
             local_usage.as_ref(),
             env_oauth_token_active()
                 .then(|| ("Mode".to_string(), "API".to_string(), "good".to_string())),
@@ -218,6 +247,7 @@ pub async fn get_claude_usage(
 
     let raw: Value = serde_json::from_str(&body_text)
         .map_err(|error| format!("Claude usage: invalid JSON ({error})"))?;
+    persist_quota_cache(&raw).ok();
     let usage = parse_claude_usage(raw);
     if usage.windows.is_empty() && usage.extra.is_none() {
         return Err(
@@ -233,7 +263,13 @@ pub async fn get_claude_usage(
         source: "remote",
     };
 
-    super::fetch_state::record_success(fetch_state(), &payload, now_ms, refresh_interval_minutes)?;
+    super::fetch_state::record_success(
+        fetch_state(),
+        &payload,
+        now_ms,
+        refresh_interval_minutes,
+        Some(&credential_fingerprint),
+    )?;
 
     Ok(payload)
 }
@@ -302,6 +338,7 @@ fn build_usage_lines(
     local_usage: Option<&ClaudeLocalUsageSummary>,
 ) -> Vec<MetricLinePayload> {
     let mut lines = Vec::new();
+    append_local_usage_lines(&mut lines, local_usage);
 
     for (key, window) in &usage.windows {
         lines.push(MetricLinePayload::Progress {
@@ -331,18 +368,22 @@ fn build_usage_lines(
         });
     }
 
-    append_local_usage_lines(&mut lines, local_usage);
-
     lines
 }
 
 fn build_local_usage_payload(
     plan: Option<String>,
+    quota_usage: Option<&ClaudeUsagePayload>,
     local_usage: Option<&ClaudeLocalUsageSummary>,
     leading_badge: Option<(String, String, String)>,
     status_badge: Option<(String, String, String)>,
 ) -> UsagePayload {
     let mut lines = Vec::new();
+    if let Some(quota_usage) = quota_usage {
+        lines.extend(build_usage_lines(quota_usage, local_usage));
+    } else {
+        append_local_usage_lines(&mut lines, local_usage);
+    }
 
     if let Some((label, value, tone)) = leading_badge {
         lines.push(MetricLinePayload::Badge {
@@ -359,8 +400,6 @@ fn build_local_usage_payload(
             tone: Some(tone),
         });
     }
-
-    append_local_usage_lines(&mut lines, local_usage);
 
     if lines.is_empty() {
         lines.push(MetricLinePayload::Badge {
@@ -393,12 +432,18 @@ fn append_local_usage_lines(
     });
     lines.push(MetricLinePayload::Text {
         label: "Yesterday".to_string(),
-        value: format!("{} tokens", shared::format_token_count(local_usage.yesterday)),
+        value: format!(
+            "{} tokens",
+            shared::format_token_count(local_usage.yesterday)
+        ),
         subtitle: None,
     });
     lines.push(MetricLinePayload::Text {
         label: "Last 30 Days".to_string(),
-        value: format!("{} tokens", shared::format_token_count(local_usage.last30_days)),
+        value: format!(
+            "{} tokens",
+            shared::format_token_count(local_usage.last30_days)
+        ),
         subtitle: None,
     });
 }
@@ -468,6 +513,18 @@ fn format_rate_limited_value(retry_after_seconds: Option<i64>) -> String {
     format!("Rate limited, retry in ~{minutes}m")
 }
 
+fn parse_rate_limited_seconds(message: &str) -> Option<i64> {
+    message
+        .strip_prefix("rate_limited:")
+        .and_then(|value| value.trim().parse::<i64>().ok())
+}
+
+fn format_refresh_rate_limited_value(retry_after_seconds: Option<i64>) -> String {
+    let value = retry_after_seconds.unwrap_or(DEFAULT_RATE_LIMIT_BACKOFF_MS / 1000);
+    let minutes = ((value + 59) / 60).max(1);
+    format!("Refresh rate-limited, retry in {minutes}m")
+}
+
 fn handle_backoff_failure(
     state: &'static Mutex<super::fetch_state::ProviderFetchState>,
     now_ms: i64,
@@ -497,14 +554,31 @@ fn map_claude_credential_error(error: CredentialError) -> String {
 }
 
 fn load_local_usage_summary() -> Result<ClaudeLocalUsageSummary, String> {
-    let path = claude_stats_cache_path()
-        .ok_or_else(|| "No Claude home directory available".to_string())?;
-    if !path.exists() {
-        return Err("Claude stats cache missing".to_string());
+    let mut daily_totals = BTreeMap::new();
+    let mut stats_dates = BTreeSet::new();
+
+    if let Some(path) = claude_stats_cache_path()
+        && path.exists()
+    {
+        let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        let stats: ClaudeStatsCache =
+            serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+
+        for day in stats.daily_model_tokens {
+            let day_total = day.tokens_by_model.values().copied().sum::<u64>();
+            if day_total == 0 {
+                continue;
+            }
+
+            stats_dates.insert(day.date.clone());
+            daily_totals.insert(day.date, day_total);
+        }
     }
 
-    let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let stats: ClaudeStatsCache = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+    append_claude_jsonl_usage(&mut daily_totals, &stats_dates);
+    if daily_totals.is_empty() {
+        return Err("Claude local usage missing".to_string());
+    }
 
     let today = current_day_key(0);
     let yesterday = current_day_key(1);
@@ -516,24 +590,196 @@ fn load_local_usage_summary() -> Result<ClaudeLocalUsageSummary, String> {
         last30_days: 0,
     };
 
-    for day in stats.daily_model_tokens {
-        let day_total = day.tokens_by_model.values().copied().sum::<u64>();
-        if day_total == 0 {
-            continue;
-        }
-
-        if day.date == today {
+    for (day, day_total) in daily_totals {
+        if day == today {
             summary.today += day_total;
         }
-        if day.date == yesterday {
+        if day == yesterday {
             summary.yesterday += day_total;
         }
-        if day.date >= last30_start {
+        if day >= last30_start {
             summary.last30_days += day_total;
         }
     }
 
     Ok(summary)
+}
+
+fn load_quota_cache_usage() -> Result<ClaudeUsagePayload, String> {
+    let path = quota_cache_path().ok_or_else(|| "No Claude home directory available".to_string())?;
+    if !path.exists() {
+        return Err("Claude quota cache missing".to_string());
+    }
+
+    let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let json: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+    let mut windows = BTreeMap::new();
+
+    if let Some(window) = quota_cache_window(&json, "/current_session") {
+        windows.insert("five_hour".to_string(), window);
+    }
+    if let Some(window) = quota_cache_window(&json, "/weekly_limits") {
+        windows.insert("seven_day".to_string(), window);
+    }
+
+    if windows.is_empty() {
+        return Err("Claude quota cache has no usage windows".to_string());
+    }
+
+    Ok(ClaudeUsagePayload {
+        windows,
+        extra: None,
+    })
+}
+
+fn quota_cache_window(json: &Value, pointer: &str) -> Option<ClaudeWindow> {
+    let value = json.pointer(pointer)?;
+    let utilization = value
+        .get("percent_used")
+        .or_else(|| value.get("utilization"))
+        .and_then(Value::as_f64)?;
+    if !(0.0..=100.0).contains(&utilization) {
+        return None;
+    }
+
+    let resets_at = value
+        .get("resets_at")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| ClaudeResetAt::Iso(value.to_string()));
+
+    Some(ClaudeWindow {
+        utilization,
+        resets_at,
+    })
+}
+
+fn persist_quota_cache(raw: &Value) -> Result<(), String> {
+    let usage = parse_claude_usage(raw.clone());
+    let Some(five_hour) = usage.windows.get("five_hour") else {
+        return Err("Claude usage response has no five_hour window".to_string());
+    };
+
+    let now = time::OffsetDateTime::now_utc();
+    let now_iso = shared::to_rfc3339(now).unwrap_or_else(|| now.to_string());
+    let seven_day = usage.windows.get("seven_day");
+    let cache = serde_json::json!({
+        "schema_version": 2,
+        "source_url": oauth_config().usage_url,
+        "attempted_at_utc": now_iso,
+        "fetched_at_utc": now_iso,
+        "current_session": {
+            "percent_used": normalize_percent(five_hour.utilization),
+            "resets_at": reset_at_to_iso_for_cache(five_hour.resets_at.as_ref()),
+        },
+        "weekly_limits": {
+            "percent_used": seven_day.map(|window| normalize_percent(window.utilization)),
+            "resets_at": seven_day.and_then(|window| reset_at_to_iso_for_cache(window.resets_at.as_ref())),
+        },
+        "quota_used_pct": normalize_percent(five_hour.utilization),
+        "weekly_used_pct": seven_day.map(|window| normalize_percent(window.utilization)),
+        "updated": now_iso,
+        "valid": true,
+        "stale": false,
+        "error": "",
+        "api_status_code": 200,
+        "consecutive_failures": 0
+    });
+
+    let path = quota_cache_path().ok_or_else(|| "No Claude home directory available".to_string())?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Claude quota cache path has no parent".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&cache).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn quota_cache_path() -> Option<PathBuf> {
+    home_dir().map(|home| home.join(".claude").join("quota-data.json"))
+}
+
+fn normalize_percent(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
+fn reset_at_to_iso_for_cache(value: Option<&ClaudeResetAt>) -> Option<String> {
+    value.and_then(reset_at_to_iso)
+}
+
+fn append_claude_jsonl_usage(
+    daily_totals: &mut BTreeMap<String, u64>,
+    stats_dates: &BTreeSet<String>,
+) {
+    let Some(projects_dir) = home_dir().map(|home| home.join(".claude").join("projects")) else {
+        return;
+    };
+
+    let mut files = Vec::new();
+    collect_jsonl_files(&projects_dir, &mut files);
+    for path in files {
+        let Ok(file) = File::open(path) else {
+            continue;
+        };
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
+            let Ok(json) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let Some(date) = claude_event_date(&json) else {
+                continue;
+            };
+            if stats_dates.contains(&date) {
+                continue;
+            }
+            let Some(total) = json
+                .pointer("/message/usage")
+                .and_then(token_total_from_usage)
+            else {
+                continue;
+            };
+            if total > 0 {
+                *daily_totals.entry(date).or_default() += total;
+            }
+        }
+    }
+}
+
+fn collect_jsonl_files(dir: &PathBuf, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_jsonl_files(&path, files);
+        } else if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+            files.push(path);
+        }
+    }
+}
+
+fn claude_event_date(value: &Value) -> Option<String> {
+    value
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(|timestamp| timestamp.get(..10))
+        .map(str::to_string)
+}
+
+fn token_total_from_usage(value: &Value) -> Option<u64> {
+    let mut total = 0_u64;
+    for key in [
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ] {
+        total += value.get(key).and_then(Value::as_u64).unwrap_or(0);
+    }
+    Some(total)
 }
 
 fn claude_stats_cache_path() -> Option<PathBuf> {
@@ -549,5 +795,10 @@ fn claude_stats_cache_path() -> Option<PathBuf> {
 
 fn current_day_key(days_ago: i64) -> String {
     let date = (time::OffsetDateTime::now_utc() - time::Duration::days(days_ago)).date();
-    format!("{:04}-{:02}-{:02}", date.year(), u8::from(date.month()), date.day())
+    format!(
+        "{:04}-{:02}-{:02}",
+        date.year(),
+        u8::from(date.month()),
+        date.day()
+    )
 }

@@ -16,9 +16,9 @@
     "verbatimModuleSyntax": true,
     "baseUrl": ".",
     "paths": {
-      "@ai-usage-dashboard/core": ["packages/core/src/index.ts"],
-      "@ai-usage-dashboard/platform": ["packages/platform/src/index.ts"],
-      "@ai-usage-dashboard/providers": ["packages/providers/src/index.ts"]
+      "@ai-usage-dashboard/core": ["packages/core/dist/index.d.ts"],
+      "@ai-usage-dashboard/platform": ["packages/platform/dist/index.d.ts"],
+      "@ai-usage-dashboard/providers": ["packages/providers/dist/index.d.ts"]
     }
   }
 }

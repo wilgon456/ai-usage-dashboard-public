@@ -12,6 +12,10 @@ use tauri::{Emitter, Manager, PhysicalPosition, Position, Rect, WebviewWindow, W
 const TRAY_WINDOW_GAP: f64 = 8.0;
 
 fn should_auto_hide_on_blur() -> bool {
+    if std::env::var("VITE_WIDGET_SYNC_TOKEN").is_ok() {
+        return false;
+    }
+
     if cfg!(debug_assertions) && std::env::var("AI_USAGE_PIN_WINDOW").is_ok() {
         return false;
     }
@@ -185,12 +189,15 @@ fn create_tray(app_handle: &tauri::AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     let credential_registry = Arc::new(credentials::CredentialRegistry::new());
+    let widget_sync_store = commands::widget_sync::new_store();
+    commands::widget_sync::start_server(Arc::clone(&widget_sync_store));
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .manage(Arc::clone(&credential_registry));
+        .manage(Arc::clone(&credential_registry))
+        .manage(widget_sync_store);
 
     #[cfg(desktop)]
     {
@@ -206,13 +213,19 @@ pub fn run() {
             commands::claude::get_claude_usage,
             commands::copilot::get_copilot_usage,
             commands::openrouter::get_openrouter_usage,
+            commands::kimi::get_kimi_usage,
             commands::connect::run_connect_command,
+            commands::connect::run_agent_connect_command,
             commands::openrouter::save_openrouter_key,
             commands::openrouter::clear_openrouter_key,
             commands::openrouter::has_openrouter_key,
             commands::platform::detect_platform,
+            commands::connect::inspect_provider_bootstrap,
             commands::tray::set_tray_icon,
             commands::tray::set_tray_labels,
+            commands::widget_sync::set_widget_sync_config,
+            commands::widget_sync::update_widget_snapshot,
+            commands::widget_sync::get_widget_sync_urls,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -229,7 +242,9 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.hide();
+                if std::env::var("VITE_WIDGET_SYNC_TOKEN").is_err() {
+                    let _ = window.hide();
+                }
             }
 
             Ok(())

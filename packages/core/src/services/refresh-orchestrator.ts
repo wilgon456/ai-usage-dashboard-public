@@ -13,7 +13,13 @@ export interface RefreshRequest {
 
 export type RefreshResult =
   | { ok: true; snapshot: UsageSnapshot }
-  | { ok: false; providerId: ProviderId; reason: string; retryable: boolean }
+  | {
+      ok: false
+      providerId: ProviderId
+      reason: string
+      retryable: boolean
+      errorKind?: "auth" | "network" | "rate_limited" | "parse" | "unexpected"
+    }
 
 export interface ProviderRuntime {
   definition: ProviderDefinition
@@ -28,13 +34,7 @@ export class RefreshOrchestrator {
   }
 
   async refreshAll(options: ProbeOptions): Promise<RefreshResult[]> {
-    const results: RefreshResult[] = []
-
-    for (const provider of this.providers) {
-      results.push(await provider.refresh(options))
-    }
-
-    return results
+    return Promise.all(this.providers.map((provider) => provider.refresh(options)))
   }
 
   async refreshOne(providerId: ProviderId, options: ProbeOptions): Promise<RefreshResult | null> {

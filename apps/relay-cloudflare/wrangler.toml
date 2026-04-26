@@ -1,0 +1,7 @@
+name = "ai-usage-dashboard-relay"
+main = "src/worker.js"
+compatibility_date = "2026-04-24"
+
+[[kv_namespaces]]
+binding = "WIDGET_SNAPSHOTS"
+id = "57d218641b0f40c4a4518a224e7da6de"

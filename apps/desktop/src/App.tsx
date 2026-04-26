@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { MutableRefObject } from "react"
 import type {
   AppSettings,
   DisplayMode,
@@ -22,6 +23,13 @@ import {
   fireThresholdNotification
 } from "./lib/notifications"
 import { syncTrayIcon } from "./lib/tray-renderer"
+import {
+  buildRelaySnapshotUrl,
+  buildWidgetSyncPayload,
+  createWidgetSyncPairId,
+  createWidgetSyncToken,
+  uploadWidgetSnapshot
+} from "./lib/widget-sync"
 import { Overview } from "./pages/Overview"
 import { ProviderDetail } from "./pages/ProviderDetail"
 import { Settings } from "./pages/Settings"
@@ -48,6 +56,7 @@ function useShell() {
 export default function App() {
   const shell = useShell()
   const [booted, setBooted] = useState(false)
+  const [widgetSyncUrls, setWidgetSyncUrls] = useState<string[]>([])
   const activeView = useUiStore((s) => s.activeView)
   const lastViewedProviderId = useUiStore((s) => s.lastViewedProviderId)
   const connectionModalFor = useUiStore((s) => s.connectionModalFor)
@@ -62,6 +71,7 @@ export default function App() {
   const setSnapshots = useProviderStore((s) => s.setSnapshots)
   const thresholdMemory = useRef<Record<string, number[]>>({})
   const seededThresholds = useRef(false)
+  const refreshInFlight = useRef(false)
   const t = createT(preferences.locale)
 
   useEffect(() => {
@@ -76,10 +86,17 @@ export default function App() {
         if (cancelled) return
         hydratePreferences(settings)
         setProviders(defs)
-        await refresh(shell, setSnapshots, setRefreshing, markRefreshed, {
-          refreshIntervalMinutes: settings.refreshIntervalMinutes,
-          force: false
-        })
+        await refresh(
+          shell,
+          setSnapshots,
+          setRefreshing,
+          markRefreshed,
+          refreshInFlight,
+          {
+            refreshIntervalMinutes: settings.refreshIntervalMinutes,
+            force: false
+          }
+        )
       } finally {
         if (!cancelled) {
           setBooted(true)
@@ -93,7 +110,7 @@ export default function App() {
 
   const refreshAuto = useCallback(async (refreshIntervalMinutes: number) => {
     if (!shell) return
-    await refresh(shell, setSnapshots, setRefreshing, markRefreshed, {
+    await refresh(shell, setSnapshots, setRefreshing, markRefreshed, refreshInFlight, {
       refreshIntervalMinutes,
       force: false
     })
@@ -101,7 +118,7 @@ export default function App() {
 
   const refreshNow = useCallback(async () => {
     if (!shell) return
-    await refresh(shell, setSnapshots, setRefreshing, markRefreshed, {
+    await refresh(shell, setSnapshots, setRefreshing, markRefreshed, refreshInFlight, {
       refreshIntervalMinutes: preferences.refreshIntervalMinutes,
       force: true
     })
@@ -117,11 +134,17 @@ export default function App() {
     if (!shell) return
     const updated = await mutate()
     hydratePreferences(updated)
-    await refresh(shell, setSnapshots, setRefreshing, markRefreshed, {
+    await refresh(shell, setSnapshots, setRefreshing, markRefreshed, refreshInFlight, {
       refreshIntervalMinutes: updated.refreshIntervalMinutes,
       force: false
     })
   }, [hydratePreferences, markRefreshed, setRefreshing, setSnapshots, shell])
+
+  const persistOnly = useCallback(async (mutate: () => Promise<AppSettings>) => {
+    if (!shell) return
+    const updated = await mutate()
+    hydratePreferences(updated)
+  }, [hydratePreferences, shell])
 
   useEffect(() => {
     const root = document.documentElement
@@ -151,7 +174,6 @@ export default function App() {
 
   useEffect(() => {
     if (!booted || !shell) return
-    if (!(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return
 
     let cancelled = false
     void (async () => {
@@ -242,31 +264,98 @@ export default function App() {
     snapshots
   ])
 
+  useEffect(() => {
+    if (!booted || !shell) return
+
+    let cancelled = false
+    void (async () => {
+      let settings = preferences
+      if (
+        preferences.featureFlags.localApiEnabled &&
+        (!preferences.widgetSyncToken || !preferences.widgetSyncPairId)
+      ) {
+        settings = await shell.updatePreferences({
+          widgetSyncPairId: preferences.widgetSyncPairId || createWidgetSyncPairId(),
+          widgetSyncToken: createWidgetSyncToken()
+        })
+        if (cancelled) return
+        hydratePreferences(settings)
+      }
+
+      const snapshot = buildWidgetSyncPayload(snapshots, settings)
+      await shell.configureWidgetSync({
+        enabled: settings.featureFlags.localApiEnabled,
+        token: settings.widgetSyncToken
+      })
+      await shell.updateWidgetSnapshot(snapshot)
+      if (settings.featureFlags.localApiEnabled && settings.widgetSyncRelayUrl) {
+        try {
+          await uploadWidgetSnapshot(settings, snapshot)
+        } catch (error) {
+          console.warn("widget relay upload failed", error)
+        }
+      }
+      if (settings.featureFlags.localApiEnabled && settings.widgetSyncToken) {
+        setWidgetSyncUrls([
+          buildRelaySnapshotUrl(settings),
+          ...(await shell.getWidgetSyncUrls(settings.widgetSyncToken))
+        ].filter(Boolean))
+      } else {
+        setWidgetSyncUrls([])
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [booted, hydratePreferences, preferences, shell, snapshots])
+
   const handlers = {
     onToggleProvider: (id: ProviderId) =>
       shell ? void persistAndRefresh(() => shell.toggleProvider(id)) : undefined,
     onThemeChange: (themeMode: ThemeMode) =>
-      shell ? void persistAndRefresh(() => shell.updatePreferences({ themeMode })) : undefined,
+      shell ? void persistOnly(() => shell.updatePreferences({ themeMode })) : undefined,
     onLocaleChange: (locale: Locale) =>
-      shell ? void persistAndRefresh(() => shell.updatePreferences({ locale })) : undefined,
+      shell ? void persistOnly(() => shell.updatePreferences({ locale })) : undefined,
     onDisplayModeChange: (displayMode: DisplayMode) =>
-      shell ? void persistAndRefresh(() => shell.updatePreferences({ displayMode })) : undefined,
+      shell ? void persistOnly(() => shell.updatePreferences({ displayMode })) : undefined,
     onRefreshIntervalChange: (refreshIntervalMinutes: RefreshIntervalMinutes) =>
       shell
         ? void persistAndRefresh(() => shell.updatePreferences({ refreshIntervalMinutes }))
         : undefined,
     onNotificationsEnabledChange: (notificationsEnabled: boolean) =>
       shell
-        ? void persistAndRefresh(() => shell.updatePreferences({ notificationsEnabled }))
+        ? void persistOnly(() => shell.updatePreferences({ notificationsEnabled }))
         : undefined,
     onNotificationThresholdsChange: (notificationThresholds: number[]) =>
       shell
-        ? void persistAndRefresh(() => shell.updatePreferences({ notificationThresholds }))
+        ? void persistOnly(() => shell.updatePreferences({ notificationThresholds }))
         : undefined,
     onTrayTargetChange: (trayTarget: ProviderId | "max" | "last-viewed") =>
-      shell ? void persistAndRefresh(() => shell.updatePreferences({ trayTarget })) : undefined,
+      shell ? void persistOnly(() => shell.updatePreferences({ trayTarget })) : undefined,
     onStartOnLoginChange: (startOnLogin: boolean) =>
-      shell ? void persistAndRefresh(() => shell.updatePreferences({ startOnLogin })) : undefined
+      shell ? void persistOnly(() => shell.updatePreferences({ startOnLogin })) : undefined,
+    onWidgetSyncEnabledChange: (localApiEnabled: boolean) =>
+      shell
+        ? void persistOnly(() =>
+            shell.updatePreferences({
+              featureFlags: {
+                ...preferences.featureFlags,
+                localApiEnabled
+              },
+              widgetSyncToken:
+                localApiEnabled && !preferences.widgetSyncToken
+                  ? createWidgetSyncToken()
+                  : preferences.widgetSyncToken,
+              widgetSyncPairId:
+                localApiEnabled && !preferences.widgetSyncPairId
+                  ? createWidgetSyncPairId()
+                  : preferences.widgetSyncPairId
+            })
+          )
+        : undefined,
+    onWidgetSyncRelayUrlChange: (widgetSyncRelayUrl: string) =>
+      shell ? void persistOnly(() => shell.updatePreferences({ widgetSyncRelayUrl })) : undefined
   }
 
   const enabledProviders: ProviderDefinition[] = providers.filter(
@@ -297,12 +386,15 @@ export default function App() {
             <Settings
               settings={preferences}
               providerStates={snapshots}
+              widgetSyncUrls={widgetSyncUrls}
               {...handlers}
               onNotificationThresholdsChange={handlers.onNotificationThresholdsChange!}
               onNotificationsEnabledChange={handlers.onNotificationsEnabledChange!}
               onToggleProvider={handlers.onToggleProvider!}
               onTrayTargetChange={handlers.onTrayTargetChange!}
               onLocaleChange={handlers.onLocaleChange!}
+              onWidgetSyncEnabledChange={handlers.onWidgetSyncEnabledChange!}
+              onWidgetSyncRelayUrlChange={handlers.onWidgetSyncRelayUrlChange!}
               t={t}
             />
           ) : selectedProvider ? (
@@ -340,14 +432,18 @@ async function refresh(
   setSnapshots: (states: ProviderSnapshotState[]) => void,
   setRefreshing: (value: boolean) => void,
   markRefreshed: (at: string) => void,
+  inFlight: MutableRefObject<boolean>,
   options: ProbeOptions
 ) {
+  if (inFlight.current) return
+  inFlight.current = true
   setRefreshing(true)
   try {
     const states = await shell.refreshAll(options)
     setSnapshots(states)
     markRefreshed(new Date().toISOString())
   } finally {
+    inFlight.current = false
     setRefreshing(false)
   }
 }

@@ -3,6 +3,7 @@ import type { ConnectionGuide, ProviderDefinition, ProviderId } from "@ai-usage-
 import { ExternalLink, X } from "lucide-react"
 import type { TFunction } from "../i18n"
 import { openExternal } from "../lib/open-url"
+import { Badge } from "./ui/Badge"
 import { Button } from "./ui/Button"
 
 interface ConnectionModalProps {
@@ -14,6 +15,22 @@ interface ConnectionModalProps {
   t: TFunction
 }
 
+interface BootstrapStep {
+  id: string
+  status: "ready" | "action_required" | "unavailable"
+  detail?: string | null
+}
+
+interface BootstrapStatus {
+  canAutoInstall: boolean
+  commandAvailable: boolean
+  availableAgents: string[]
+  recommendedMode: "agent" | "shell"
+  steps: BootstrapStep[]
+}
+
+type DelegatingAgent = "codex" | "claude"
+
 async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const module = await import("@tauri-apps/api/core")
   return module.invoke<T>(command, args)
@@ -24,7 +41,7 @@ function inTauri() {
 }
 
 function saveArgs(command: string, value: string) {
-  if (command === "save_openrouter_key") {
+  if (command === "save_openrouter_key" || command === "save_kimi_key") {
     return { key: value }
   }
 
@@ -48,6 +65,10 @@ export function ConnectionModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [launchHint, setLaunchHint] = useState<string | null>(null)
+  const [bootstrap, setBootstrap] = useState<BootstrapStatus | null>(null)
+  const shouldInspectBootstrap =
+    guide.kind === "cli" || providerId === "openrouter" || providerId === "kimi"
+  const [loadingBootstrap, setLoadingBootstrap] = useState(shouldInspectBootstrap)
 
   useEffect(() => {
     primaryButtonRef.current?.focus()
@@ -71,35 +92,69 @@ export function ConnectionModal({
     setValue("")
     setError(null)
     setLaunchHint(null)
+    setBootstrap(null)
 
     if (!apiKeyGuide) {
       setHasExistingKey(false)
       setLoadingExistingKey(false)
-      return () => {
-        cancelled = true
-      }
     }
 
-    setLoadingExistingKey(true)
+    if (!shouldInspectBootstrap) {
+      setLoadingBootstrap(false)
+    } else {
+      setLoadingBootstrap(true)
+    }
+
     void (async () => {
+      if (apiKeyGuide) {
+        setLoadingExistingKey(true)
+        if (!inTauri()) {
+          if (!cancelled) {
+            setHasExistingKey(false)
+            setLoadingExistingKey(false)
+          }
+        } else {
+          try {
+            const result = await invokeCommand<boolean>(apiKeyGuide.hasCommand)
+            if (!cancelled) {
+              setHasExistingKey(result)
+            }
+          } catch (commandError) {
+            console.warn("openrouter key check failed", commandError)
+          } finally {
+            if (!cancelled) {
+              setLoadingExistingKey(false)
+            }
+          }
+        }
+      }
+
+      if (!shouldInspectBootstrap) {
+        return
+      }
+
       if (!inTauri()) {
         if (!cancelled) {
-          setHasExistingKey(false)
-          setLoadingExistingKey(false)
+          setLoadingBootstrap(false)
         }
         return
       }
 
       try {
-        const result = await invokeCommand<boolean>(apiKeyGuide.hasCommand)
+        const result = await invokeCommand<BootstrapStatus>("inspect_provider_bootstrap", {
+          provider: providerId
+        })
         if (!cancelled) {
-          setHasExistingKey(result)
+          setBootstrap(result)
         }
       } catch (commandError) {
-        console.warn("openrouter key check failed", commandError)
+        if (!cancelled) {
+          const message = commandError instanceof Error ? commandError.message : String(commandError)
+          setError(message)
+        }
       } finally {
         if (!cancelled) {
-          setLoadingExistingKey(false)
+          setLoadingBootstrap(false)
         }
       }
     })()
@@ -107,7 +162,7 @@ export function ConnectionModal({
     return () => {
       cancelled = true
     }
-  }, [apiKeyGuide, guide, providerId])
+  }, [apiKeyGuide, guide.kind, providerId, shouldInspectBootstrap])
 
   async function handleRefresh() {
     setBusy(true)
@@ -138,6 +193,29 @@ export function ConnectionModal({
       await invokeCommand<void>("run_connect_command", { provider: providerId })
       window.setTimeout(() => {
         setLaunchHint(t("connection.afterLaunchHint"))
+      }, 250)
+    } catch (launchError) {
+      const reason = launchError instanceof Error ? launchError.message : String(launchError)
+      setError(t("connection.launchFailed", { reason }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleAgentLaunch(agent: DelegatingAgent) {
+    if (!inTauri()) {
+      setError(t("connection.packagedOnly"))
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setLaunchHint(null)
+
+    try {
+      await invokeCommand<void>("run_agent_connect_command", { provider: providerId, agent })
+      window.setTimeout(() => {
+        setLaunchHint(t("connection.agentRunning", { agent: agentDisplayName(agent) }))
       }, 250)
     } catch (launchError) {
       const reason = launchError instanceof Error ? launchError.message : String(launchError)
@@ -203,6 +281,59 @@ export function ConnectionModal({
   }
 
   const showTerminalLaunch = guide.kind === "cli" || guide.kind === "oauth"
+  const hasManualBlocker =
+    bootstrap?.steps.some((step) => step.status === "unavailable") ?? false
+  const allBootstrapReady =
+    bootstrap?.steps.length ? bootstrap.steps.every((step) => step.status === "ready") : false
+  const canLaunchBootstrap =
+    guide.kind === "cli" ? Boolean(bootstrap?.commandAvailable) && !loadingBootstrap : true
+  const availableAgents = (bootstrap?.availableAgents ?? []).filter(
+    (agent): agent is DelegatingAgent =>
+      (agent === "codex" || agent === "claude") && agent !== providerId
+  )
+  const showAgentBootstrap =
+    bootstrap?.recommendedMode === "agent" && availableAgents.length > 0 && !loadingBootstrap
+  const showShellFallback = guide.kind === "cli" && Boolean(bootstrap?.commandAvailable)
+  const showInlineAgentLinks = showAgentBootstrap || showShellFallback
+  const agentLinkClass =
+    "text-[11px] text-fg-muted underline underline-offset-2 hover:text-fg transition-colors disabled:opacity-50"
+
+  function agentDisplayName(agent: DelegatingAgent) {
+    return agent === "codex" ? "Codex" : "Claude"
+  }
+
+  function stepLabel(stepId: string) {
+    switch (stepId) {
+      case "homebrew":
+        return t("connection.bootstrapStep.homebrew")
+      case "winget":
+        return t("connection.bootstrapStep.winget")
+      case "nodejs":
+        return t("connection.bootstrapStep.nodejs")
+      case "claude_cli":
+        return t("connection.bootstrapStep.claudeCli")
+      case "codex_cli":
+        return t("connection.bootstrapStep.codexCli")
+      case "gh_cli":
+        return t("connection.bootstrapStep.ghCli")
+      case "provider_auth":
+        return t("connection.bootstrapStep.providerAuth")
+      default:
+        return stepId
+    }
+  }
+
+  function stepBadge(stepStatus: BootstrapStep["status"]) {
+    if (stepStatus === "ready") {
+      return <Badge tone="good">{t("connection.bootstrapReady")}</Badge>
+    }
+
+    if (stepStatus === "action_required") {
+      return <Badge tone="warn">{t("connection.bootstrapActionRequired")}</Badge>
+    }
+
+    return <Badge tone="danger">{t("connection.bootstrapManualRequired")}</Badge>
+  }
 
   return (
     <div
@@ -236,11 +367,34 @@ export function ConnectionModal({
         </div>
 
         {guide.kind === "cli" ? (
-          <ol className="mt-4 list-decimal space-y-2 pl-4 text-xs text-fg-secondary">
-            {guide.steps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
+          <>
+            <ol className="mt-4 list-decimal space-y-2 pl-4 text-xs text-fg-secondary">
+              {guide.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+            <p className="mt-3 text-xs text-fg-muted">{t("connection.autoInstallHint")}</p>
+            {loadingBootstrap ? (
+              <p className="mt-3 text-xs text-fg-muted">{t("connection.bootstrapChecking")}</p>
+            ) : bootstrap ? (
+              <div className="mt-3 space-y-2 rounded-lg border border-border bg-surface-0 p-3">
+                {bootstrap.steps.map((step) => (
+                  <div key={step.id} className="rounded-md border border-border/70 bg-surface-1 p-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium text-fg">{stepLabel(step.id)}</span>
+                      {stepBadge(step.status)}
+                    </div>
+                    {step.detail ? (
+                      <p className="mt-1 text-[11px] text-fg-secondary">{step.detail}</p>
+                    ) : null}
+                  </div>
+                ))}
+                {hasManualBlocker ? (
+                  <p className="text-[11px] text-danger">{t("connection.bootstrapManualRequired")}</p>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         ) : null}
 
         {guide.kind === "oauth" ? (
@@ -249,15 +403,42 @@ export function ConnectionModal({
           </p>
         ) : null}
 
-        {showTerminalLaunch ? (
-          <button
-            type="button"
-            className="mt-3 inline-flex items-center gap-1 text-xs text-page-accent transition-opacity hover:opacity-80"
-            onClick={() => void openExternal(guide.docsUrl)}
-          >
-            {t("connection.openDocs")}
-            <ExternalLink className="h-3.5 w-3.5" />
-          </button>
+        {showTerminalLaunch || showInlineAgentLinks ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {showTerminalLaunch ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs text-page-accent transition-opacity hover:opacity-80"
+                onClick={() => void openExternal(guide.docsUrl)}
+              >
+                {t("connection.openDocs")}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+            {showAgentBootstrap
+              ? availableAgents.map((agent) => (
+                  <button
+                    key={agent}
+                    type="button"
+                    className={agentLinkClass}
+                    onClick={() => void handleAgentLaunch(agent)}
+                    disabled={busy}
+                  >
+                    {t("connection.agentButton", { agent: agentDisplayName(agent) })}
+                  </button>
+                ))
+              : null}
+            {showShellFallback ? (
+              <button
+                type="button"
+                className={agentLinkClass}
+                onClick={() => void handleLaunch()}
+                disabled={busy}
+              >
+                {t("connection.shellFallback")}
+              </button>
+            ) : null}
+          </div>
         ) : null}
 
         {apiKeyGuide ? (
@@ -292,37 +473,58 @@ export function ConnectionModal({
         {launchHint ? <p className="mt-3 text-xs text-fg-muted">{launchHint}</p> : null}
         {error ? <p className="mt-3 text-xs text-danger">{error}</p> : null}
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 space-y-3">
           {apiKeyGuide ? (
             <>
-              <Button
-                ref={primaryButtonRef}
-                variant="accent"
-                onClick={() => void handleSave()}
-                disabled={busy}
-              >
-                {hasExistingKey ? t("connection.replaceKey") : t("connection.saveKey")}
-              </Button>
               {hasExistingKey ? (
-                <Button variant="ghost" onClick={() => void handleRemove()} disabled={busy}>
-                  {t("connection.removeKey")}
-                </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button size="xs" variant="ghost" onClick={() => void handleSave()} disabled={busy}>
+                    {t("connection.replaceKey")}
+                  </Button>
+                  <Button size="xs" variant="ghost" onClick={() => void handleRemove()} disabled={busy}>
+                    {t("connection.removeKey")}
+                  </Button>
+                </div>
               ) : null}
+              <div className="flex justify-end">
+                <Button
+                  ref={primaryButtonRef}
+                  variant="accent"
+                  className="w-full justify-center"
+                  onClick={() => void handleSave()}
+                  disabled={busy}
+                >
+                  {t("common.save")}
+                </Button>
+              </div>
+            </>
+          ) : showAgentBootstrap ? (
+            <>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  ref={primaryButtonRef}
+                  variant="ghost"
+                  onClick={() => void handleRefresh()}
+                  disabled={busy || loadingBootstrap}
+                >
+                  {t("connection.iveSetUp")}
+                </Button>
+              </div>
             </>
           ) : (
-            <>
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 ref={primaryButtonRef}
                 variant="accent"
-                onClick={() => void handleLaunch()}
-                disabled={busy}
+                onClick={() => void (allBootstrapReady ? handleRefresh() : handleLaunch())}
+                disabled={busy || !canLaunchBootstrap}
               >
-                {t("connection.launchCli")}
+                {allBootstrapReady ? t("connection.iveSetUp") : t("connection.launchCli")}
               </Button>
-              <Button variant="ghost" onClick={() => void handleRefresh()} disabled={busy}>
+              <Button variant="ghost" onClick={() => void handleRefresh()} disabled={busy || loadingBootstrap}>
                 {t("connection.iveSetUp")}
               </Button>
-            </>
+            </div>
           )}
         </div>
       </div>

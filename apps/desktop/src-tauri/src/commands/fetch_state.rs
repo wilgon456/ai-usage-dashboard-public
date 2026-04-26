@@ -1,4 +1,5 @@
 use super::shared::{MetricLinePayload, UsagePayload};
+use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -15,6 +16,8 @@ pub struct ProviderFetchState {
     pub cached_payload: Option<UsagePayload>,
     /// Refresh interval used to compute the current cache TTL.
     pub cache_refresh_interval_minutes: Option<u32>,
+    /// Credential fingerprint used to avoid serving cache across accounts/keys.
+    pub cache_credential_fingerprint: Option<String>,
     /// Epoch-ms until which the cache is considered fresh.
     pub cache_fresh_until_ms: i64,
     /// Consecutive network/5xx failure count, used to compute next attempt.
@@ -38,23 +41,46 @@ pub fn ttl_ms(refresh_interval_minutes: u32) -> i64 {
     (i64::from(refresh_interval_minutes).max(1) * 60_000) / 2
 }
 
-pub fn read_cached_or_stalled_payload(
+pub fn credential_fingerprint(secret: &str) -> String {
+    let digest = Sha256::digest(secret.trim().as_bytes());
+    format!("{digest:x}").chars().take(8).collect()
+}
+
+pub fn read_cached_or_stale_payload(
     state: &'static Mutex<ProviderFetchState>,
     now_ms: i64,
     refresh_interval_minutes: u32,
+    credential_fingerprint: Option<&str>,
     force: bool,
 ) -> Result<Option<UsagePayload>, String> {
-    if force {
-        return Ok(None);
-    }
-
     let state = state.lock().map_err(|error| error.to_string())?;
-    let cache_matches = state.cache_refresh_interval_minutes == Some(refresh_interval_minutes);
+    let cache_matches = state.cache_refresh_interval_minutes == Some(refresh_interval_minutes)
+        && state.cache_credential_fingerprint.as_deref() == credential_fingerprint;
     let Some(cached_payload) = state.cached_payload.as_ref() else {
+        if force
+            && state.retry_kind == RetryKind::RateLimited
+            && now_ms < state.retry_after_ms
+            && cache_matches
+        {
+            return Err(format_rate_limited_in_seconds(
+                ((state.retry_after_ms - now_ms) / 1000).max(0),
+            ));
+        }
         return Ok(None);
     };
 
     if !cache_matches {
+        return Ok(None);
+    }
+
+    if force {
+        if state.retry_kind == RetryKind::RateLimited && now_ms < state.retry_after_ms {
+            return Ok(Some(with_status_badge(
+                cached_payload,
+                format_rate_limited_in_seconds(((state.retry_after_ms - now_ms) / 1000).max(0)),
+                "warn",
+            )));
+        }
         return Ok(None);
     }
 
@@ -86,10 +112,12 @@ pub fn record_success(
     payload: &UsagePayload,
     now_ms: i64,
     refresh_interval_minutes: u32,
+    credential_fingerprint: Option<&str>,
 ) -> Result<(), String> {
     let mut state = state.lock().map_err(|error| error.to_string())?;
     state.cached_payload = Some(payload.clone());
     state.cache_refresh_interval_minutes = Some(refresh_interval_minutes);
+    state.cache_credential_fingerprint = credential_fingerprint.map(ToOwned::to_owned);
     state.cache_fresh_until_ms = now_ms + ttl_ms(refresh_interval_minutes);
     state.consecutive_failures = 0;
     state.retry_after_ms = 0;
