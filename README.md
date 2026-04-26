@@ -1,170 +1,110 @@
 # AI Usage Dashboard
 
-Cross-platform AI usage dashboard for macOS and Windows.
+AI Usage Dashboard는 여러 AI 서비스의 사용량을 한 화면에서 확인하는 데스크탑 앱입니다. 현재는 macOS 중심의 Tauri 앱과 Android 위젯 동기화 기능을 포함합니다.
 
-## Goal
+> 이 저장소는 공개 배포용입니다. 개인 Firebase 설정, Cloudflare secret, provider token, 실제 sync URL은 포함하지 않습니다.
 
-Build a desktop app that shows AI subscription and usage data in one place without inheriting the full risk profile of an existing macOS-only fork.
+## 무엇을 할 수 있나요?
 
-The product starts with a clean architecture:
+- Codex, Copilot, OpenRouter, Kimi 등 provider 사용량을 데스크탑에서 확인
+- 데스크탑 앱이 만든 안전한 snapshot을 Cloudflare Relay로 업로드
+- Android 앱/홈 화면 위젯에서 해당 snapshot을 표시
+- FCM wake signal + Android WorkManager polling으로 모바일 위젯을 자동 갱신
+- telemetry/local API는 기본 비활성화
 
-- shared provider core
-- platform-specific desktop shell
-- explicit credential access boundaries
-- telemetry off by default
-- local API off by default
-
-## Product Scope
-
-### Phase 1
-
-- macOS desktop app
-- tray access and compact dashboard window
-- manual refresh
-- local encrypted settings
-- provider support for:
-  - Claude
-  - Codex
-  - Cursor
-  - Copilot
-
-### Phase 2
-
-- Windows desktop app
-- Windows tray integration
-- WebView2 shell
-- Windows credential storage support
-- shared provider engine reused from macOS build
-
-## Non-Goals
-
-- browser app first
-- uncontrolled plugin execution
-- broad filesystem access for providers
-- telemetry by default
-- public local HTTP API by default
-
-## Architecture Direction
-
-The project is split into three layers:
-
-1. `core`
-   Shared domain models, provider contracts, refresh orchestration, caching, redaction, and settings schema.
-2. `providers`
-   Provider-specific auth readers and usage fetchers behind narrow interfaces.
-3. `desktop shell`
-   Tauri desktop app with platform adapters for tray, window behavior, startup, key storage, and updater.
-
-This lets us ship macOS first without locking the whole app to macOS-only implementation details.
-
-## Security Principles
-
-- Minimize credential access scope per provider.
-- Default provider adapters to read-only behavior.
-- Separate provider auth access from UI code.
-- Keep logs redacted and avoid raw token persistence.
-- Require explicit opt-in for telemetry, local API, and auto-update.
-- Avoid loading arbitrary third-party provider scripts at runtime.
-
-## Initial Deliverables
-
-- [docs/architecture.md](docs/architecture.md)
-- [docs/roadmap.md](docs/roadmap.md)
-- workspace scaffold for:
-  - `apps/desktop`
-  - `packages/core`
-  - `packages/platform`
-  - `packages/providers`
-
-## Development Plan
-
-### Milestone 0
-
-Define product scope, supported providers, security defaults, and shared data model.
-
-### Milestone 1
-
-Implement macOS MVP on the final architecture, not on a temporary fork-only layout.
-
-### Milestone 2
-
-Add Windows shell and credential adapters while keeping provider logic shared.
-
-### Milestone 3
-
-Harden packaging, update flow, diagnostics, and regression coverage.
-
-## Workspace Layout
+## 현재 구조
 
 ```text
 apps/
-  desktop/
+  desktop/             # Tauri + React 데스크탑 앱
+  android/             # Android 앱 + 홈 화면 위젯
+  relay-cloudflare/    # Cloudflare Worker relay
+  relay/               # Node relay 개발용 서버
 packages/
-  core/
-  platform/
-  providers/
-docs/
+  core/                # provider/domain/settings 모델
+  platform/            # platform abstraction
+  providers/           # provider adapter 계약 및 구현
+docs/                  # GitHub Pages 문서
 ```
 
-## Getting Started
+## 빠른 시작
 
-1. Install workspace dependencies with `npm install`.
-2. Run `npm run typecheck`.
-3. Run `npm run dev:desktop`.
-4. Run `npm run build` for a production bundle.
+```bash
+git clone <repository-url>
+cd ai-usage-dashboard
+npm install
+npm run typecheck
+cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+npm run build:android
+```
 
-## Mobile Widget Sync
+데스크탑 개발 실행:
 
-The desktop app can publish a sanitized usage snapshot to a Cloudflare relay so an Android app/widget can display the latest provider usage.
+```bash
+npm run dev:tauri
+```
 
-- Detailed setup: [docs/widget-sync-setup.md](docs/widget-sync-setup.md)
-- Implementation notes: [docs/android-widget.md](docs/android-widget.md)
-- Public docs site: https://wilgon456.github.io/ai-usage-dashboard-public/
+macOS 자동화/에이전트 환경에서 실행할 때 provider credential을 못 찾으면 실제 사용자 HOME을 명시하세요.
 
-Security notes:
+```bash
+HOME="$HOME" npm run dev:tauri
+```
 
-- Do not commit `apps/android/app/google-services.json` to a public repository.
-- Do not commit Firebase service-account JSON files or Cloudflare Worker secrets.
-- Treat the generated `/v1/snapshots/<pairId>?token=<syncToken>` URL as a secret.
+## 일반 사용자를 위한 설치/세팅 문서
 
-## Agent-Friendly Setup
+GitHub Pages에서 단계별 문서를 볼 수 있습니다.
 
-On a fresh machine, start here:
+- 문서 홈: <https://wilgon456.github.io/ai-usage-dashboard-public/>
+- 모바일 위젯 싱크 설치/세팅 가이드: <https://wilgon456.github.io/ai-usage-dashboard-public/widget-sync-setup.html>
+- AI 에이전트에게 그대로 던질 설치 프롬프트: <https://wilgon456.github.io/ai-usage-dashboard-public/ai-agent-setup-prompt.html>
+- Android 위젯 구현 노트: <https://wilgon456.github.io/ai-usage-dashboard-public/android-widget.html>
 
-1. Run `npm run setup`.
-2. If setup stops, inspect with `npm run doctor` or `npm run doctor:json`.
-3. Run `npm run smoke`.
-4. Start the app with `npm run dev:tauri`.
+## 모바일 위젯 싱크 요약
 
-Additional details are in [docs/agent-setup.md](docs/agent-setup.md).
+1. Cloudflare Worker relay를 배포합니다.
+2. Firebase Android 앱을 만들고 `google-services.json`을 로컬에 둡니다.
+3. Firebase service account 값은 Cloudflare Worker secret으로만 등록합니다.
+4. 데스크탑 앱에서 `Settings -> System -> Android widget sync`를 켭니다.
+5. Worker base URL을 입력합니다.
+6. 데스크탑 앱에 표시되는 전체 `/v1/snapshots/<pairId>?token=<syncToken>` URL을 Android 앱에 붙여넣습니다.
+7. Android 앱에서 `Sync Widget`을 한 번 누르고 홈 화면 위젯을 추가합니다.
 
-## Repository Status
+주의: generated sync URL은 접근 토큰을 포함합니다. public issue, README, screenshot에 그대로 올리지 마세요.
 
-This repository now contains:
+## AI 에이전트에게 맡기고 싶다면
 
-- the initial architecture and roadmap
-- a typed workspace for `core`, `platform`, and `providers`
-- a React/Vite desktop shell in `apps/desktop`
-- local-storage-backed development runtime for platform settings and demo credentials
-- a live Codex usage bridge that reads local Codex auth and token-count session logs
-- an initial Tauri v2 shell in `apps/desktop/src-tauri`
+새 컴퓨터에서 에이전트에게 작업을 맡길 때는 아래 문서를 통째로 전달하면 됩니다.
 
-## Current OpenAI Integration
+```text
+https://wilgon456.github.io/ai-usage-dashboard-public/ai-agent-setup-prompt.html
+```
 
-The current live integration is for `Codex`.
+해당 문서에는 clone, dependency 설치, 검증 명령, Firebase/Cloudflare 설정, Android build, 위젯 연결까지 순서대로 적혀 있습니다.
 
-- Auth source: `~/.codex/auth.json`
-- Remote usage source: ChatGPT/Codex backend usage endpoint
-- Token usage source: local Codex session JSONL logs in `~/.codex/sessions`
+## 보안 원칙
 
-This path is practical, but not based on a public stable OpenAI API contract. It should be treated as an implementation detail that may need updates if upstream behavior changes.
+- `apps/android/app/google-services.json`은 public repo에 커밋하지 않습니다.
+- Firebase service account JSON은 repo에 커밋하지 않습니다.
+- Cloudflare Worker secret은 `wrangler secret put`으로만 등록합니다.
+- provider token/API key를 로그나 문서에 남기지 않습니다.
+- FCM push payload에는 사용량 데이터나 sync token을 넣지 않고 wake signal만 보냅니다.
 
-## Native Shell Status
+## 주요 검증 명령
 
-`apps/desktop/src-tauri` is now scaffolded for a Tauri v2 desktop runtime.
+```bash
+npm run test --workspace @ai-usage-dashboard/relay-cloudflare
+npm run typecheck
+cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+npm run build:android
+```
 
-- Frontend: Vite + React
-- Native bridge: `get_codex_usage`
-- Dev entry: `npm run dev:tauri`
+## 현재 한계
 
-The Tauri command path reads the same local Codex auth and session files as the dev-server bridge, so the app can move away from browser-only `/api` middleware.
+- Android 앱은 provider를 직접 조회하는 standalone client가 아니라 데스크탑/relay snapshot viewer입니다.
+- PC의 데스크탑 앱이 꺼져 있으면 새 snapshot은 만들어지지 않습니다.
+- FCM은 near-instant best-effort이며 Android/OEM 배터리 정책에 따라 지연될 수 있습니다.
+- iPhone/iOS 위젯은 같은 snapshot contract로 확장 가능하지만 별도 iOS 앱/APNs 구현이 필요합니다.
+
+## 라이선스
+
+아직 명시 라이선스가 없다면 공개 배포 전에 `LICENSE` 파일을 추가하는 것을 권장합니다.

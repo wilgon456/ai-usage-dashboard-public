@@ -1,127 +1,108 @@
-# Android Widget
+# Android 위젯 구현 노트
 
-The Android work starts as a separate native app in `apps/android`.
+이 문서는 AI Usage Dashboard의 Android 앱/홈 화면 위젯이 어떻게 동작하는지 설명합니다. 일반 사용자가 설치만 하려면 [모바일 위젯 싱크 설치/세팅 가이드](widget-sync-setup.md)를 먼저 보세요.
 
-This is intentional. The current desktop app depends on local desktop provider credentials and CLI/session files, while Android needs a different auth and sync model. The widget reads a compact JSON snapshot from Android `SharedPreferences`; later work can replace the demo writer with a companion sync endpoint, cloud sync, or mobile-native provider adapters without changing the widget rendering contract.
+## 왜 별도 Android 앱인가?
 
-## Current MVP
+현재 데스크탑 앱은 로컬 PC의 provider credential, CLI session file, keychain/env 등을 이용해 사용량을 조회합니다. Android에서 같은 credential을 그대로 읽을 수 없기 때문에 Android 앱은 provider를 직접 조회하지 않고, 데스크탑 앱이 만든 **sanitized snapshot**을 받아 표시합니다.
 
-- Native Android application module at `apps/android/app`
-- Home screen widget backed by `UsageWidgetProvider`
-- Local snapshot boundary in `UsageSnapshotStore`
-- Manual cloud relay sync URL import for `https://relay.example.com/v1/snapshots/...?...`
-- Automatic Android sync from the saved sync URL when:
-  - the launch activity opens
-  - the home-screen widget receives an update event
-  - WorkManager runs the periodic sync job
-- Minimal launch activity with:
+즉 현재 Android 앱은 다음 역할입니다.
+
+```text
+데스크탑 provider 조회 결과를 모바일에서 보는 snapshot viewer + 홈 화면 위젯
+```
+
+## 현재 MVP 구성
+
+- Android module: `apps/android/app`
+- 홈 화면 위젯: `UsageWidgetProvider`
+- snapshot 저장소: `UsageSnapshotStore`
+- HTTP fetch/검증/저장 helper: `UsageSnapshotSync`
+- background sync worker: `WidgetSyncWorker`
+- FCM token 등록 helper: `WidgetPushRegistrar`
+- FCM 수신 service: `UsageFirebaseMessagingService`
+- 최소 Android activity:
+  - sync URL 입력
   - `Sync Widget`
   - `Seed Demo Snapshot`
   - `Refresh Widgets`
 
-The desktop app uploads widget sync only when Settings -> System -> Android widget sync is enabled. The relay endpoint is token-protected and returns a safe JSON snapshot without credentials.
+## 데이터 흐름
 
-The demo snapshot is generated from `packages/core/src/domain/provider-registry.json`, the same registry that defines the desktop default provider order.
+```text
+Desktop app
+  provider usage refresh
+  sanitized widget snapshot 생성
+  PUT /v1/snapshots/:pairId Authorization: Bearer <syncToken>
 
-The generated snapshot format is intentionally close to the dashboard card model:
+Cloudflare Relay
+  최신 snapshot 저장
+  snapshot etag가 바뀌면 FCM wake signal 전송
+
+Android app/widget
+  FCM wake signal 수신
+  WidgetSyncWorker one-shot enqueue
+  GET /v1/snapshots/:pairId?token=<syncToken>
+  SharedPreferences에 snapshot 저장
+  홈 화면 위젯 갱신
+```
+
+## Snapshot 형식
+
+위젯은 provider credential이나 raw token을 저장하지 않습니다. 표시용 필드만 저장합니다.
 
 ```json
 {
+  "schemaVersion": 1,
   "fetchedAt": "2026-04-24T00:00:00Z",
   "providers": [
     {
       "id": "codex",
       "name": "Codex",
       "percentUsed": 42,
+      "usageLabel": "128K tokens today",
       "summary": "128K tokens today",
-      "accentColor": "#111827"
-    },
-    {
-      "id": "copilot",
-      "name": "Copilot",
-      "percentUsed": 68,
-      "summary": "Monthly included usage",
-      "accentColor": "#0f766e"
-    },
-    {
-      "id": "openrouter",
-      "name": "OpenRouter",
-      "percentUsed": 23,
-      "summary": "$4.28 this month",
-      "accentColor": "#2563eb"
-    },
-    {
-      "id": "kimi",
-      "name": "Kimi",
-      "percentUsed": 36,
-      "summary": "Connected via CLI",
-      "accentColor": "#7c3aed"
+      "accentColor": "#111827",
+      "state": "normal"
     }
   ]
 }
 ```
 
-## Build
+## Android 쪽 자동 sync trigger
 
-From the repository root:
+Android는 다음 상황에서 sync를 시도합니다.
 
-```sh
-npm run build:android
+- 앱 실행 시 저장된 sync URL이 있으면 자동 sync
+- 사용자가 `Sync Widget` 버튼을 누를 때
+- 홈 화면 위젯 update 이벤트가 올 때
+- 앱 package replace 이벤트가 올 때
+- WorkManager periodic sync가 돌 때
+- FCM wake signal을 받을 때
+
+FCM이 지연되거나 실패해도 WorkManager polling이 fallback으로 동작합니다.
+
+## Cloudflare Relay + Push
+
+### Snapshot API
+
+데스크탑 앱은 최신 snapshot을 relay에 업로드합니다.
+
+```http
+PUT /v1/snapshots/:pairId
+Authorization: Bearer <syncToken>
+Content-Type: application/json
 ```
 
-This expects a local Android SDK and Gradle installation. If this project later adopts a checked-in Gradle wrapper, update the script to call `apps/android/gradlew`.
+Android 앱은 저장된 URL로 snapshot을 가져옵니다.
 
-## Cloud Relay Sync
-
-### Cloudflare Workers
-
-The recommended free path is Cloudflare Workers + KV.
-
-1. Create a KV namespace:
-
-```sh
-npx wrangler kv namespace create WIDGET_SNAPSHOTS --config apps/relay-cloudflare/wrangler.toml
+```http
+GET /v1/snapshots/:pairId?token=<syncToken>
 ```
 
-2. Put the returned namespace id into `apps/relay-cloudflare/wrangler.toml`.
-3. Deploy:
+### Push 등록 API
 
-```sh
-npm run deploy:relay:cf
-```
-
-4. Open the desktop app.
-5. Go to Settings -> System.
-6. Enable Android widget sync.
-7. Enter the deployed Worker base URL, for example `https://ai-usage-dashboard-relay.<account>.workers.dev`.
-8. Copy the displayed `/v1/snapshots/...` URL into the Android app.
-9. Tap `Sync Widget` once, or reopen the Android app. After a sync URL is saved, Android schedules periodic WorkManager sync and widget update events also enqueue a fresh fetch.
-
-Notes:
-- Android still keeps WorkManager polling as the fallback, but the Cloudflare relay can now send an FCM wake signal right after a changed PC snapshot upload.
-- Push is intentionally a wake signal only. The push payload contains `type`, `pairId`, `updatedAt`, `snapshotEtag`, and `schemaVersion`; it never contains provider usage data or the sync token.
-- Android and OEM battery policy can still delay delivery, so this is near-instant best-effort rather than a hard real-time guarantee.
-- The Android app is currently a desktop/relay snapshot viewer. Full standalone provider support requires separate mobile credential/auth implementations per provider.
-
-## Relay + Push
-
-The push-enhanced path keeps the existing snapshot contract:
-
-```text
-Desktop app
-  PUT /v1/snapshots/:pairId  Authorization: Bearer <syncToken>
-Cloudflare relay
-  stores sanitized snapshot
-  sends FCM data message when the snapshot etag changes
-Android app/widget
-  receives snapshot.updated
-  enqueues WidgetSyncWorker one-shot
-  GET /v1/snapshots/:pairId?token=<syncToken>
-```
-
-### Push registration API
-
-After the Android app has a saved relay sync URL, it attempts to register its FCM token:
+Android 앱은 sync URL이 저장된 뒤 FCM token을 relay에 등록합니다.
 
 ```http
 POST /v1/push/:pairId/register
@@ -131,13 +112,13 @@ Content-Type: application/json
 {
   "platform": "android",
   "provider": "fcm",
-  "pushToken": "...",
+  "pushToken": "<fcm device token>",
   "appVersion": "0.1.0",
   "deviceId": "locally-generated-random-id"
 }
 ```
 
-To remove a device token:
+등록 해제 API도 있습니다.
 
 ```http
 POST /v1/push/:pairId/unregister
@@ -147,29 +128,58 @@ Content-Type: application/json
 {
   "platform": "android",
   "provider": "fcm",
-  "pushToken": "..."
+  "pushToken": "<fcm device token>"
 }
 ```
 
-The relay stores devices under per-token KV keys (`push:${pairId}:...`) so registration is idempotent and avoids array overwrite races. The snapshot is stored under `snapshot:${pairId}`. Legacy direct `pairId` snapshot reads remain supported for old KV entries.
+Relay는 device token을 pair별 KV key로 저장합니다. 중복 등록은 idempotent하게 처리됩니다.
 
-### FCM configuration
+## FCM payload 원칙
 
-For local tests, the Worker supports `FCM_ACCESS_TOKEN` and `FCM_SEND_URL`. For real Cloudflare deployment, prefer service-account based secrets:
+FCM payload는 wake signal만 담습니다.
 
-```sh
+포함 가능:
+
+- `type=snapshot.updated`
+- `pairId`
+- `updatedAt`
+- `snapshotEtag`
+- `schemaVersion`
+
+포함 금지:
+
+- provider 사용량 데이터
+- sync URL
+- sync token
+- provider token/API key
+
+Android는 push payload의 데이터로 화면을 직접 갱신하지 않고, push를 받으면 `WidgetSyncWorker`를 깨워 relay에서 snapshot을 다시 가져옵니다.
+
+## Firebase 설정
+
+Android에서 실제 FCM token을 받으려면 Firebase client config가 필요합니다.
+
+```text
+apps/android/app/google-services.json
+```
+
+이 파일이 있으면 Gradle build가 `com.google.gms.google-services` plugin을 조건부로 적용합니다. 파일이 없어도 debug build는 가능하며, 이 경우 push 등록은 동작하지 않고 polling fallback만 사용합니다.
+
+## Worker secret
+
+Cloudflare Worker에서 FCM을 보내려면 service-account 기반 secret이 필요합니다.
+
+```bash
 npx wrangler secret put FCM_PROJECT_ID --config apps/relay-cloudflare/wrangler.toml
 npx wrangler secret put FCM_CLIENT_EMAIL --config apps/relay-cloudflare/wrangler.toml
 npx wrangler secret put FCM_PRIVATE_KEY --config apps/relay-cloudflare/wrangler.toml
 ```
 
-`FCM_PRIVATE_KEY` may contain escaped newlines (`\\n`). If the FCM secrets are absent, snapshot upload still succeeds and push delivery is treated as best-effort failure; WorkManager polling continues to work.
+`FCM_PRIVATE_KEY`는 escaped newline(`\\n`)을 포함할 수 있습니다. Worker 코드는 이를 실제 newline으로 복원해 JWT를 만듭니다.
 
-Android requires Firebase Messaging runtime configuration for actual token issuance. Put the Firebase client config at `apps/android/app/google-services.json`; the Gradle build applies `com.google.gms.google-services` only when that file exists, so local/debug builds without Firebase config still compile and keep polling active.
+## iOS/APNs 확장 가능성
 
-### iOS/APNs contract
-
-iOS can reuse the same API contract later:
+Relay data model은 나중에 iOS/APNs 등록을 받을 수 있도록 `ios` / `apns` 형태를 받아들일 수 있습니다.
 
 ```json
 {
@@ -181,25 +191,30 @@ iOS can reuse the same API contract later:
 }
 ```
 
-APNs delivery is not implemented yet. The relay data model already accepts `ios`/`apns`, but send-side support should be added with APNs provider-token credentials and the same wake-only payload rule.
+다만 APNs 전송 자체는 아직 구현되어 있지 않습니다. iPhone 위젯까지 지원하려면 별도 iOS 앱, WidgetKit, APNs provider token 구현이 필요합니다.
 
-### Node Relay
+## Node Relay
 
-For non-Cloudflare hosts, the Node relay remains available:
+Cloudflare가 아닌 환경에서 테스트하고 싶다면 Node relay를 사용할 수 있습니다.
 
-```sh
+```bash
 npm run dev:relay
 ```
 
-When a provider is disabled on desktop, it is omitted from the next uploaded widget snapshot. Android reflects the change after the next sync.
+실제 모바일 사용에는 Cloudflare relay가 더 적합합니다. 로컬 LAN URL은 개발 fallback 성격입니다.
 
-The legacy LAN URL is still shown as a development fallback, but the cloud relay URL is the useful mobile path.
+## 보안 체크포인트
 
-## Next Decisions
+- sync URL은 token을 포함하므로 secret으로 취급합니다.
+- Android error message는 sync URL과 `token=` 값을 redact합니다.
+- Widget snapshot에는 provider credential을 넣지 않습니다.
+- Push payload에는 provider 사용량과 token을 넣지 않습니다.
+- Public repo에는 `google-services.json`과 Firebase service account JSON을 넣지 않습니다.
 
-1. Choose the data source:
-   - backend sync service
-   - Android-native provider adapters
-2. Add automatic background sync on Android.
-3. Add a widget configuration screen for provider ordering and display mode.
-4. Replace manual relay URL entry with QR/pairing-code setup.
+## 다음 개선 후보
+
+- QR code 또는 pairing code 기반 연결
+- Android 위젯 설정 화면에서 provider 순서/display mode 선택
+- stale FCM token 정리 강화
+- iOS WidgetKit/APNs 지원
+- Android-native provider adapter 실험
