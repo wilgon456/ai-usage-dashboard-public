@@ -122,7 +122,32 @@ pub async fn get_claude_usage(
                 )),
             ));
         }
-        Err(error) => return Err(map_claude_credential_error(error)),
+        Err(error) => {
+            let local_usage = load_local_usage_summary().ok();
+            if local_usage.is_none() {
+                return Err(map_claude_credential_error(error));
+            }
+
+            let quota_usage = load_quota_cache_usage().ok();
+            let plan = registry.claude().load_plan_label().await.ok().flatten();
+            let status = match error {
+                CredentialError::NotConfigured => "Local logs • Claude login required",
+                CredentialError::RefreshFailed(_) => "Local logs • Live quota auth expired",
+                CredentialError::Io(_) => "Local logs • Live quota unavailable",
+            };
+
+            return Ok(build_local_usage_payload(
+                plan,
+                quota_usage.as_ref(),
+                local_usage.as_ref(),
+                Some((
+                    "Source".to_string(),
+                    "Claude Code logs".to_string(),
+                    "good".to_string(),
+                )),
+                Some(("Status".to_string(), status.to_string(), "warn".to_string())),
+            ));
+        }
     };
     let access_token = match credential {
         Credential::OAuth { access_token, .. } => access_token,
@@ -182,6 +207,24 @@ pub async fn get_claude_usage(
                     "Status".to_string(),
                     "Usage derived from local API stats".to_string(),
                     "neutral".to_string(),
+                )),
+            ));
+        }
+
+        if local_usage.is_some() {
+            return Ok(build_local_usage_payload(
+                plan,
+                quota_usage.as_ref(),
+                local_usage.as_ref(),
+                Some((
+                    "Source".to_string(),
+                    "Claude Code logs".to_string(),
+                    "good".to_string(),
+                )),
+                Some((
+                    "Status".to_string(),
+                    "Local logs • Live quota auth expired".to_string(),
+                    "warn".to_string(),
                 )),
             ));
         }
@@ -606,7 +649,8 @@ fn load_local_usage_summary() -> Result<ClaudeLocalUsageSummary, String> {
 }
 
 fn load_quota_cache_usage() -> Result<ClaudeUsagePayload, String> {
-    let path = quota_cache_path().ok_or_else(|| "No Claude home directory available".to_string())?;
+    let path =
+        quota_cache_path().ok_or_else(|| "No Claude home directory available".to_string())?;
     if !path.exists() {
         return Err("Claude quota cache missing".to_string());
     }
@@ -686,7 +730,8 @@ fn persist_quota_cache(raw: &Value) -> Result<(), String> {
         "consecutive_failures": 0
     });
 
-    let path = quota_cache_path().ok_or_else(|| "No Claude home directory available".to_string())?;
+    let path =
+        quota_cache_path().ok_or_else(|| "No Claude home directory available".to_string())?;
     let parent = path
         .parent()
         .ok_or_else(|| "Claude quota cache path has no parent".to_string())?;

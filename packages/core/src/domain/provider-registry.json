@@ -1,5 +1,12 @@
 {
-  "defaultProviderOrder": ["codex", "copilot", "openrouter", "kimi"],
+  "defaultProviderOrder": [
+    "codex",
+    "claude",
+    "openrouter",
+    "alibaba-token-plan",
+    "opencode-go",
+    "grok"
+  ],
   "providers": {
     "codex": {
       "displayName": "Codex",
@@ -18,6 +25,24 @@
       "brandColor": "#6366f1",
       "widgetSummary": "$4.28 this month",
       "demoPercentUsed": 23
+    },
+    "alibaba-token-plan": {
+      "displayName": "Alibaba Token Plan",
+      "brandColor": "#ff6a00",
+      "widgetSummary": "OpenCode local tokens",
+      "demoPercentUsed": 0
+    },
+    "opencode-go": {
+      "displayName": "OpenCode Go",
+      "brandColor": "#22c55e",
+      "widgetSummary": "OpenCode local tokens",
+      "demoPercentUsed": 0
+    },
+    "grok": {
+      "displayName": "Grok",
+      "brandColor": "#f4f4f5",
+      "widgetSummary": "Grok tokens via OpenCode",
+      "demoPercentUsed": 0
     },
     "kimi": {
       "displayName": "Kimi",

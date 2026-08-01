@@ -82,6 +82,12 @@ export const translationKeys = [
   "settings.display.displayMode",
   "settings.display.displayModeDescription",
   "settings.display.displayUsed",
+  "settings.display.alwaysVisible",
+  "settings.display.alwaysVisibleDescription",
+  "settings.display.alwaysVisibleToggle",
+  "settings.display.compactMode",
+  "settings.display.compactModeDescription",
+  "settings.display.compactModeToggle",
   "settings.display.locale",
   "settings.display.theme",
   "settings.display.themeDark",
@@ -119,7 +125,7 @@ export const translationKeys = [
   "settings.trayTarget.max",
   "tray.goToSettings",
   "tray.quit",
-  "tray.showDashboard"
-] as const
+  "tray.showDashboard",
+] as const;
 
-export type TranslationKey = typeof translationKeys[number]
+export type TranslationKey = (typeof translationKeys)[number];

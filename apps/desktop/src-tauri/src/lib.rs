@@ -5,13 +5,20 @@ mod tray_assets;
 // NOTE: Windows Rust targets could not be installed in this sandbox because the toolchain here cannot provision target components; cfg guards remain in place for cross-platform builds once the target is available.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, PhysicalPosition, Position, Rect, WebviewWindow, WindowEvent};
 
 const TRAY_WINDOW_GAP: f64 = 8.0;
+static POPUP_HAS_RECEIVED_FOCUS: AtomicBool = AtomicBool::new(false);
+static ALWAYS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
 fn should_auto_hide_on_blur() -> bool {
+    if ALWAYS_VISIBLE.load(Ordering::Acquire) {
+        return false;
+    }
+
     if std::env::var("VITE_WIDGET_SYNC_TOKEN").is_ok() {
         return false;
     }
@@ -21,6 +28,51 @@ fn should_auto_hide_on_blur() -> bool {
     }
 
     true
+}
+
+fn position_window_top_center(window: &WebviewWindow) {
+    let Ok(window_size) = window.outer_size() else {
+        return;
+    };
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    if let Some(monitor) = monitor {
+        let work_area = monitor.work_area();
+        let position = clamp_window_position(
+            f64::from(work_area.position.x)
+                + (f64::from(work_area.size.width) - f64::from(window_size.width)) / 2.0,
+            f64::from(work_area.position.y) + TRAY_WINDOW_GAP,
+            window_size,
+            &monitor,
+        );
+        let _ = window.set_position(Position::Physical(position));
+    }
+}
+
+#[tauri::command]
+fn set_window_presentation(app: tauri::AppHandle, always_visible: bool) -> Result<(), String> {
+    ALWAYS_VISIBLE.store(always_visible, Ordering::Release);
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("main window not found".to_string());
+    };
+
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
+
+    let is_visible = window.is_visible().unwrap_or(false);
+    if always_visible || is_visible {
+        position_window_top_center(&window);
+    }
+    if always_visible && !is_visible {
+        window.show().map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
 
 fn clamp_window_position(
@@ -61,9 +113,11 @@ fn position_window_near_tray_macos(window: &WebviewWindow, rect: &Rect) {
         .or_else(|| window.primary_monitor().ok().flatten());
 
     if let Some(monitor) = monitor {
+        let work_area = monitor.work_area();
         let position = clamp_window_position(
-            tray_center_x - f64::from(window_size.width) / 2.0,
-            tray_bottom + TRAY_WINDOW_GAP,
+            f64::from(work_area.position.x)
+                + (f64::from(work_area.size.width) - f64::from(window_size.width)) / 2.0,
+            f64::from(work_area.position.y) + TRAY_WINDOW_GAP,
             window_size,
             &monitor,
         );
@@ -95,6 +149,7 @@ fn position_window_near_cursor_windows(window: &WebviewWindow, cursor: &Physical
 }
 
 fn show_window(window: &WebviewWindow) {
+    POPUP_HAS_RECEIVED_FOCUS.store(false, Ordering::Release);
     let _ = window.set_always_on_top(true);
     let _ = window.show();
     let app_handle = window.app_handle().clone();
@@ -166,7 +221,12 @@ fn create_tray(app_handle: &tauri::AppHandle) -> tauri::Result<()> {
             {
                 match window.is_visible() {
                     Ok(true) => {
-                        let _ = window.hide();
+                        if ALWAYS_VISIBLE.load(Ordering::Acquire) {
+                            position_window_top_center(&window);
+                            show_window(&window);
+                        } else {
+                            let _ = window.hide();
+                        }
                     }
                     Ok(false) | Err(_) => {
                         #[cfg(target_os = "macos")]
@@ -219,6 +279,9 @@ pub fn run() {
             commands::openrouter::save_openrouter_key,
             commands::openrouter::clear_openrouter_key,
             commands::openrouter::has_openrouter_key,
+            commands::opencode_local::get_alibaba_token_plan_usage,
+            commands::opencode_local::get_opencode_go_usage,
+            commands::grok::get_grok_usage,
             commands::platform::detect_platform,
             commands::connect::inspect_provider_bootstrap,
             commands::tray::set_tray_icon,
@@ -226,6 +289,7 @@ pub fn run() {
             commands::widget_sync::set_widget_sync_config,
             commands::widget_sync::update_widget_snapshot,
             commands::widget_sync::get_widget_sync_urls,
+            set_window_presentation,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -252,10 +316,16 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
+                POPUP_HAS_RECEIVED_FOCUS.store(false, Ordering::Release);
                 let _ = window.hide();
             }
+            WindowEvent::Focused(true) if window.label() == "main" => {
+                POPUP_HAS_RECEIVED_FOCUS.store(true, Ordering::Release);
+            }
             WindowEvent::Focused(false)
-                if should_auto_hide_on_blur() && window.label() == "main" =>
+                if should_auto_hide_on_blur()
+                    && window.label() == "main"
+                    && POPUP_HAS_RECEIVED_FOCUS.swap(false, Ordering::AcqRel) =>
             {
                 let _ = window.hide();
             }

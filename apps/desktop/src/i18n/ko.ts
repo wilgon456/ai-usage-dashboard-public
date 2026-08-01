@@ -1,4 +1,4 @@
-import type { TranslationKey } from "./keys"
+import type { TranslationKey } from "./keys";
 
 export const ko: Record<TranslationKey, string> = {
   "app.providerUnavailable": "프로바이더를 사용할 수 없습니다.",
@@ -34,13 +34,16 @@ export const ko: Record<TranslationKey, string> = {
   "common.replace": "교체",
   "common.save": "저장",
   "connection.apiKey": "API 키",
-  "connection.afterLaunchHint": "로그인까지 마친 뒤 '완료 후 새로고침'을 눌러주세요.",
+  "connection.afterLaunchHint":
+    "로그인까지 마친 뒤 '완료 후 새로고침'을 눌러주세요.",
   "connection.agentButton": "{agent}에게 설치 맡기기",
   "connection.agentRunning": "{agent} 터미널에서 진행 중입니다.",
-  "connection.autoInstallHint": "CLI가 없으면 자동 설치를 시도한 뒤 로그인 창을 엽니다.",
+  "connection.autoInstallHint":
+    "CLI가 없으면 자동 설치를 시도한 뒤 로그인 창을 엽니다.",
   "connection.bootstrapActionRequired": "조치 필요",
   "connection.bootstrapChecking": "환경 진단 중…",
-  "connection.bootstrapManualRequired": "일부 기본 환경은 수동 설치가 필요합니다.",
+  "connection.bootstrapManualRequired":
+    "일부 기본 환경은 수동 설치가 필요합니다.",
   "connection.bootstrapReady": "준비됨",
   "connection.bootstrapStep.claudeCli": "Claude CLI",
   "connection.bootstrapStep.codexCli": "Codex CLI",
@@ -50,7 +53,8 @@ export const ko: Record<TranslationKey, string> = {
   "connection.bootstrapStep.providerAuth": "로그인 상태",
   "connection.bootstrapStep.winget": "winget",
   "connection.closeGuide": "연결 안내 닫기",
-  "connection.completeOauth": "브라우저에서 로그인 절차를 완료한 뒤 돌아와서 새로고침하세요.",
+  "connection.completeOauth":
+    "브라우저에서 로그인 절차를 완료한 뒤 돌아와서 새로고침하세요.",
   "connection.createKey": "키 발급 받기",
   "connection.enterApiKey": "API 키를 입력하세요.",
   "connection.existingKeySaved": "이미 저장된 키가 있습니다.",
@@ -67,7 +71,8 @@ export const ko: Record<TranslationKey, string> = {
   "footer.neverRefreshed": "아직 새로고침 전",
   "footer.refreshAction": "새로고침",
   "footer.updated": "{time} 업데이트",
-  "home.providersSubtitle": "각 AI의 사용량 및 연결 상태를 한눈에 확인하세요. 설정에서 AI를 등록하세요.",
+  "home.providersSubtitle":
+    "각 AI의 사용량 및 연결 상태를 한눈에 확인하세요. 설정에서 AI를 등록하세요.",
   "home.providersTitle": "홈",
   "metric.leftSuffix": " 잔여",
   "nav.help": "도움말 · 이슈 등록",
@@ -77,27 +82,41 @@ export const ko: Record<TranslationKey, string> = {
   "notifications.limitResetSuffix": " {time}에 리셋됩니다.",
   "notifications.limitTitle": "{provider} {percent}%",
   "provider.detailSubtitle": "이 AI의 상세 사용량입니다.",
-  "settings.about.description": "Codex, Copilot, OpenRouter, Kimi 사용량을 한 곳에서 확인하세요.",
+  "settings.about.description":
+    "Codex, Copilot, OpenRouter, Kimi 사용량을 한 곳에서 확인하세요.",
   "settings.about.inspiredBy": "OpenUsage 프로젝트(MIT)에서 영감을 얻었습니다.",
   "settings.about.title": "AI Usage Dashboard",
   "settings.display.displayLeft": "잔여",
   "settings.display.displayMode": "사용량 표시",
-  "settings.display.displayModeDescription": "사용한 양 또는 남은 양을 표시합니다.",
+  "settings.display.displayModeDescription":
+    "사용한 양 또는 남은 양을 표시합니다.",
   "settings.display.displayUsed": "사용",
+  "settings.display.alwaysVisible": "화면 상단에 고정",
+  "settings.display.alwaysVisibleDescription":
+    "다른 앱을 사용해도 상단 중앙에 계속 표시합니다.",
+  "settings.display.alwaysVisibleToggle": "화면 상단 고정 토글",
+  "settings.display.compactMode": "미니멀 표시",
+  "settings.display.compactModeDescription":
+    "여백과 보조 문구를 줄여 더 얇게 표시합니다.",
+  "settings.display.compactModeToggle": "미니멀 표시 토글",
   "settings.display.locale": "언어",
   "settings.display.theme": "테마",
   "settings.display.themeDark": "다크",
   "settings.display.themeLight": "라이트",
   "settings.display.themeSystem": "시스템",
   "settings.notifications.enabled": "알림 사용",
-  "settings.notifications.enabledDescription": "프로바이더 사용량이 한도에 가까워지면 데스크탑 알림을 표시합니다.",
+  "settings.notifications.enabledDescription":
+    "프로바이더 사용량이 한도에 가까워지면 데스크탑 알림을 표시합니다.",
   "settings.notifications.threshold1": "1차 알림",
-  "settings.notifications.threshold1Description": "임계값을 처음 넘을 때 경고. 5% 히스테리시스로 반복 방지.",
+  "settings.notifications.threshold1Description":
+    "임계값을 처음 넘을 때 경고. 5% 히스테리시스로 반복 방지.",
   "settings.notifications.threshold2": "2차 알림",
-  "settings.notifications.threshold2Description": "사용량이 치명 한도에 도달했을 때 발송됩니다.",
+  "settings.notifications.threshold2Description":
+    "사용량이 치명 한도에 도달했을 때 발송됩니다.",
   "settings.notifications.toggleAria": "데스크탑 알림 토글",
   "settings.notifications.trayTarget": "트레이 표시 대상",
-  "settings.notifications.trayTargetDescription": "메뉴바에 노출할 프로바이더 로고와 사용률을 선택합니다.",
+  "settings.notifications.trayTargetDescription":
+    "메뉴바에 노출할 프로바이더 로고와 사용률을 선택합니다.",
   "settings.providers.toggle": "{provider} 토글",
   "settings.system.interval15Minutes": "15분",
   "settings.system.interval30Minutes": "30분",
@@ -107,7 +126,8 @@ export const ko: Record<TranslationKey, string> = {
   "settings.system.startOnLogin": "로그인 시 실행",
   "settings.system.startOnLoginToggle": "로그인 시 실행 토글",
   "settings.system.widgetSync": "Android 위젯 동기화",
-  "settings.system.widgetSyncDescription": "같은 네트워크의 Android 위젯이 읽을 수 있는 안전한 JSON만 내보냅니다.",
+  "settings.system.widgetSyncDescription":
+    "같은 네트워크의 Android 위젯이 읽을 수 있는 안전한 JSON만 내보냅니다.",
   "settings.system.widgetSyncToggle": "Android 위젯 동기화 토글",
   "settings.system.widgetSyncUrl": "Android 앱에 입력할 URL",
   "settings.system.widgetRelayUrl": "클라우드 relay URL",
@@ -121,5 +141,5 @@ export const ko: Record<TranslationKey, string> = {
   "settings.trayTarget.max": "최다 사용",
   "tray.goToSettings": "설정 열기",
   "tray.quit": "종료",
-  "tray.showDashboard": "대시보드 열기"
-}
+  "tray.showDashboard": "대시보드 열기",
+};

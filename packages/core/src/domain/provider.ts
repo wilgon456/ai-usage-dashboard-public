@@ -1,4 +1,12 @@
-export type ProviderId = "claude" | "codex" | "copilot" | "openrouter" | "kimi"
+export type ProviderId =
+  | "codex"
+  | "claude"
+  | "openrouter"
+  | "alibaba-token-plan"
+  | "opencode-go"
+  | "grok"
+  | "copilot"
+  | "kimi"
 
 export type CredentialHandle =
   | {

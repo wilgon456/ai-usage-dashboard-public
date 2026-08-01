@@ -109,7 +109,13 @@ pub async fn get_kimi_usage(
     let payload = if status.is_success() {
         let raw: Value = serde_json::from_str(&body_text)
             .map_err(|error| format!("Kimi usage: invalid JSON ({error})"))?;
-        build_usage_payload(&access_token, Some(&raw), "remote", "OAuth token loaded", "good")
+        build_usage_payload(
+            &access_token,
+            Some(&raw),
+            "remote",
+            "OAuth token loaded",
+            "good",
+        )
     } else if status == reqwest::StatusCode::NOT_FOUND {
         fetch_kimi_identity_payload(&client, &access_token).await?
     } else if status.is_client_error() {
@@ -142,12 +148,7 @@ async fn fetch_kimi_identity_payload(
     let response = match fetch_kimi_json(client, ME_URL, access_token).await {
         Ok(response) => response,
         Err(_) => {
-            return local_fallback_payload(
-                Some(access_token),
-                "Local logs only",
-                "warn",
-                None,
-            );
+            return local_fallback_payload(Some(access_token), "Local logs only", "warn", None);
         }
     };
 
@@ -188,7 +189,9 @@ fn build_usage_payload(
     status: &str,
     status_tone: &str,
 ) -> UsagePayload {
-    let jwt = (!access_token.trim().is_empty()).then(|| decode_jwt_payload(access_token)).flatten();
+    let jwt = (!access_token.trim().is_empty())
+        .then(|| decode_jwt_payload(access_token))
+        .flatten();
     let plan = infer_plan(me).unwrap_or_else(|| "Kimi Code".to_string());
     let local_usage = load_local_usage_summary().ok();
     let mut lines = Vec::new();
@@ -536,7 +539,9 @@ fn quota_used_percent(value: &Value) -> Option<f64> {
     }
 
     let used = first_numeric_field(value, &["used", "usage", "consumed"])
-        .or_else(|| first_numeric_field(value, &["remaining", "left"]).map(|remaining| limit - remaining))
+        .or_else(|| {
+            first_numeric_field(value, &["remaining", "left"]).map(|remaining| limit - remaining)
+        })
         .unwrap_or(0.0)
         .max(0.0);
 

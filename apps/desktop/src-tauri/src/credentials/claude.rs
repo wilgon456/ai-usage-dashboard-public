@@ -35,7 +35,7 @@ pub(crate) struct ClaudeOauthConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct ClaudeCredentialsFile {
-    #[serde(default, alias = "claude_ai_oauth")]
+    #[serde(default, rename = "claudeAiOauth", alias = "claude_ai_oauth")]
     claude_ai_oauth: ClaudeOauth,
 }
 
@@ -552,4 +552,46 @@ fn read_env_flag(name: &str) -> bool {
 
 fn trim_trailing_slashes(value: &str) -> &str {
     value.trim_end_matches('/')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_and_preserves_claude_code_keychain_shape() {
+        let raw = r#"{
+          "claudeAiOauth": {
+            "accessToken": "test-access-token",
+            "refreshToken": "test-refresh-token",
+            "expiresAt": 4102444800000,
+            "subscriptionType": "max"
+          }
+        }"#;
+
+        let parsed: ClaudeCredentialsFile = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            parsed.claude_ai_oauth.access_token.as_deref(),
+            Some("test-access-token")
+        );
+
+        let encoded = serde_json::to_value(parsed).unwrap();
+        assert!(encoded.get("claudeAiOauth").is_some());
+        assert!(encoded.get("claude_ai_oauth").is_none());
+    }
+
+    #[test]
+    fn still_accepts_legacy_snake_case_shape() {
+        let raw = r#"{
+          "claude_ai_oauth": {
+            "access_token": "legacy-access-token"
+          }
+        }"#;
+
+        let parsed: ClaudeCredentialsFile = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            parsed.claude_ai_oauth.access_token.as_deref(),
+            Some("legacy-access-token")
+        );
+    }
 }

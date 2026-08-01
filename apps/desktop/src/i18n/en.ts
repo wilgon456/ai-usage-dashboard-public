@@ -1,4 +1,4 @@
-import type { TranslationKey } from "./keys"
+import type { TranslationKey } from "./keys";
 
 export const en: Record<TranslationKey, string> = {
   "app.providerUnavailable": "Provider not available.",
@@ -34,13 +34,16 @@ export const en: Record<TranslationKey, string> = {
   "common.replace": "Replace",
   "common.save": "Save",
   "connection.apiKey": "API key",
-  "connection.afterLaunchHint": "After installation and login finish, tap 'Done - Refresh'.",
+  "connection.afterLaunchHint":
+    "After installation and login finish, tap 'Done - Refresh'.",
   "connection.agentButton": "Let {agent} set this up",
   "connection.agentRunning": "Running in the {agent} terminal.",
-  "connection.autoInstallHint": "If the CLI is missing, the app will try to install it before opening login.",
+  "connection.autoInstallHint":
+    "If the CLI is missing, the app will try to install it before opening login.",
   "connection.bootstrapActionRequired": "Action required",
   "connection.bootstrapChecking": "Checking environment…",
-  "connection.bootstrapManualRequired": "Some prerequisites still need manual installation.",
+  "connection.bootstrapManualRequired":
+    "Some prerequisites still need manual installation.",
   "connection.bootstrapReady": "Ready",
   "connection.bootstrapStep.claudeCli": "Claude CLI",
   "connection.bootstrapStep.codexCli": "Codex CLI",
@@ -50,7 +53,8 @@ export const en: Record<TranslationKey, string> = {
   "connection.bootstrapStep.providerAuth": "Sign-in state",
   "connection.bootstrapStep.winget": "winget",
   "connection.closeGuide": "Close connection guide",
-  "connection.completeOauth": "Complete the sign-in flow in your browser, then come back and refresh.",
+  "connection.completeOauth":
+    "Complete the sign-in flow in your browser, then come back and refresh.",
   "connection.createKey": "Create key",
   "connection.enterApiKey": "Enter an API key.",
   "connection.existingKeySaved": "A key is already saved.",
@@ -67,7 +71,8 @@ export const en: Record<TranslationKey, string> = {
   "footer.neverRefreshed": "Not refreshed yet",
   "footer.refreshAction": "Refresh",
   "footer.updated": "Updated {time}",
-  "home.providersSubtitle": "See usage and connection state for each AI. Register AIs in Settings.",
+  "home.providersSubtitle":
+    "See usage and connection state for each AI. Register AIs in Settings.",
   "home.providersTitle": "Home",
   "metric.leftSuffix": " left",
   "nav.help": "Help · Report an issue",
@@ -77,27 +82,41 @@ export const en: Record<TranslationKey, string> = {
   "notifications.limitResetSuffix": " Resets {time}.",
   "notifications.limitTitle": "{provider} at {percent}%",
   "provider.detailSubtitle": "Detailed usage for this AI.",
-  "settings.about.description": "Track Codex, Copilot, OpenRouter, and Kimi usage in one place.",
+  "settings.about.description":
+    "Track Codex, Copilot, OpenRouter, and Kimi usage in one place.",
   "settings.about.inspiredBy": "Inspired by the OpenUsage project (MIT).",
   "settings.about.title": "AI Usage Dashboard",
   "settings.display.displayLeft": "Left",
   "settings.display.displayMode": "Usage display",
-  "settings.display.displayModeDescription": "Show either the amount used or the amount remaining.",
+  "settings.display.displayModeDescription":
+    "Show either the amount used or the amount remaining.",
   "settings.display.displayUsed": "Used",
+  "settings.display.alwaysVisible": "Pin to top of screen",
+  "settings.display.alwaysVisibleDescription":
+    "Keep the island visible at the top center while using other apps.",
+  "settings.display.alwaysVisibleToggle": "Toggle pin to top of screen",
+  "settings.display.compactMode": "Minimal display",
+  "settings.display.compactModeDescription":
+    "Reduce spacing and secondary labels for a slimmer island.",
+  "settings.display.compactModeToggle": "Toggle minimal display",
   "settings.display.locale": "Language",
   "settings.display.theme": "Theme",
   "settings.display.themeDark": "Dark",
   "settings.display.themeLight": "Light",
   "settings.display.themeSystem": "System",
   "settings.notifications.enabled": "Notifications",
-  "settings.notifications.enabledDescription": "Show desktop alerts when provider usage approaches its limit.",
+  "settings.notifications.enabledDescription":
+    "Show desktop alerts when provider usage approaches its limit.",
   "settings.notifications.threshold1": "Warning threshold",
-  "settings.notifications.threshold1Description": "Warn once when usage first crosses the threshold. A 5% hysteresis prevents spam.",
+  "settings.notifications.threshold1Description":
+    "Warn once when usage first crosses the threshold. A 5% hysteresis prevents spam.",
   "settings.notifications.threshold2": "Critical threshold",
-  "settings.notifications.threshold2Description": "Sent when usage reaches the critical limit.",
+  "settings.notifications.threshold2Description":
+    "Sent when usage reaches the critical limit.",
   "settings.notifications.toggleAria": "Toggle desktop notifications",
   "settings.notifications.trayTarget": "Tray target",
-  "settings.notifications.trayTargetDescription": "Choose which provider logo and usage value appear in the menu bar.",
+  "settings.notifications.trayTargetDescription":
+    "Choose which provider logo and usage value appear in the menu bar.",
   "settings.providers.toggle": "Toggle {provider}",
   "settings.system.interval15Minutes": "15 min",
   "settings.system.interval30Minutes": "30 min",
@@ -107,7 +126,8 @@ export const en: Record<TranslationKey, string> = {
   "settings.system.startOnLogin": "Start on login",
   "settings.system.startOnLoginToggle": "Toggle start on login",
   "settings.system.widgetSync": "Android widget sync",
-  "settings.system.widgetSyncDescription": "Expose a safe JSON snapshot for Android widgets on the same network.",
+  "settings.system.widgetSyncDescription":
+    "Expose a safe JSON snapshot for Android widgets on the same network.",
   "settings.system.widgetSyncToggle": "Toggle Android widget sync",
   "settings.system.widgetSyncUrl": "URL to enter in Android app",
   "settings.system.widgetRelayUrl": "Cloud relay URL",
@@ -121,5 +141,5 @@ export const en: Record<TranslationKey, string> = {
   "settings.trayTarget.max": "Highest usage",
   "tray.goToSettings": "Go to Settings",
   "tray.quit": "Quit",
-  "tray.showDashboard": "Show Dashboard"
-}
+  "tray.showDashboard": "Show Dashboard",
+};

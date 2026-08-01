@@ -1,4 +1,4 @@
-import { defaultSettings, RefreshOrchestrator } from "@ai-usage-dashboard/core"
+import { defaultSettings, RefreshOrchestrator } from "@ai-usage-dashboard/core";
 import type {
   AppSettings,
   CredentialHandle,
@@ -7,162 +7,170 @@ import type {
   ProviderDefinition,
   ProviderId,
   ProviderSnapshotState,
-  UsageSnapshot
-} from "@ai-usage-dashboard/core"
+  UsageSnapshot,
+} from "@ai-usage-dashboard/core";
 import type {
   CredentialStore,
   PlatformRuntime,
-  SettingsStore
-} from "@ai-usage-dashboard/platform"
+  SettingsStore,
+} from "@ai-usage-dashboard/platform";
 import {
+  alibabaTokenPlanAdapter,
+  claudeAdapter,
   codexAdapter,
-  copilotAdapter,
-  kimiAdapter,
-  openrouterAdapter
-} from "@ai-usage-dashboard/providers"
-import type { ProviderAdapter } from "@ai-usage-dashboard/providers"
-import { translate } from "./i18n"
+  grokAdapter,
+  openCodeGoAdapter,
+  openrouterAdapter,
+} from "@ai-usage-dashboard/providers";
+import type { ProviderAdapter } from "@ai-usage-dashboard/providers";
+import { translate } from "./i18n";
 import {
   normalizePreferencesPayload,
-  toPersistedPreferences
-} from "./stores/preferences-store"
+  toPersistedPreferences,
+} from "./stores/preferences-store";
 
-const SETTINGS_STORAGE_KEY = "ai-usage-dashboard.settings"
-const CREDENTIAL_STORAGE_PREFIX = "ai-usage-dashboard.credential."
+const SETTINGS_STORAGE_KEY = "ai-usage-dashboard.settings";
+const CREDENTIAL_STORAGE_PREFIX = "ai-usage-dashboard.credential.";
 
 const providerAdapters: ProviderAdapter[] = [
   codexAdapter,
-  copilotAdapter,
+  claudeAdapter,
   openrouterAdapter,
-  kimiAdapter
-]
+  alibabaTokenPlanAdapter,
+  openCodeGoAdapter,
+  grokAdapter,
+];
 
-type ResolvedPlatform = "macos" | "windows"
+type ResolvedPlatform = "macos" | "windows";
 
-let resolvedPlatform: ResolvedPlatform = "macos"
+let resolvedPlatform: ResolvedPlatform = "macos";
 
 function readJson<T>(key: string): T | null {
-  if (typeof localStorage === "undefined") return null
+  if (typeof localStorage === "undefined") return null;
 
-  const raw = localStorage.getItem(key)
-  if (!raw) return null
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
 
   try {
-    return JSON.parse(raw) as T
+    return JSON.parse(raw) as T;
   } catch {
-    return null
+    return null;
   }
 }
 
 function writeJson(key: string, value: unknown) {
-  if (typeof localStorage === "undefined") return
-  localStorage.setItem(key, JSON.stringify(value))
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(key, JSON.stringify(value));
 }
 
 function isResolvedPlatform(value: string): value is ResolvedPlatform {
-  return value === "macos" || value === "windows"
+  return value === "macos" || value === "windows";
 }
 
 function isLocale(value: string): value is Locale {
-  return value === "ko" || value === "en"
+  return value === "ko" || value === "en";
 }
 
-async function invokeTauri<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
+async function invokeTauri<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T | null> {
   try {
-    const module = await import("@tauri-apps/api/core")
-    return module.invoke<T>(command, args)
+    const module = await import("@tauri-apps/api/core");
+    return module.invoke<T>(command, args);
   } catch {
-    return null
+    return null;
   }
 }
 
 async function detectRuntimePlatform(): Promise<ResolvedPlatform> {
-  const detected = await invokeTauri<string>("detect_platform")
-  return detected && isResolvedPlatform(detected) ? detected : "macos"
+  const detected = await invokeTauri<string>("detect_platform");
+  return detected && isResolvedPlatform(detected) ? detected : "macos";
 }
 
 async function syncTrayLabels(locale: Locale) {
   await invokeTauri<void>("set_tray_labels", {
     showDashboard: translate(locale, "tray.showDashboard"),
     goToSettings: translate(locale, "tray.goToSettings"),
-    quit: translate(locale, "tray.quit")
-  })
+    quit: translate(locale, "tray.quit"),
+  });
 }
 
 function purgeLegacyDemoCredentials() {
-  if (typeof localStorage === "undefined") return
+  if (typeof localStorage === "undefined") return;
 
   for (const providerId of ["claude", "codex"] as const) {
-    const storageKey = CREDENTIAL_STORAGE_PREFIX + providerId
-    const raw = localStorage.getItem(storageKey)
-    if (!raw) continue
+    const storageKey = CREDENTIAL_STORAGE_PREFIX + providerId;
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) continue;
     if (raw.includes("demo-claude-") || raw.includes("demo-codex-")) {
-      localStorage.removeItem(storageKey)
+      localStorage.removeItem(storageKey);
     }
   }
 }
 
 class BrowserCredentialStore implements CredentialStore {
   async load(providerId: ProviderId) {
-    return readJson<CredentialHandle>(CREDENTIAL_STORAGE_PREFIX + providerId)
+    return readJson<CredentialHandle>(CREDENTIAL_STORAGE_PREFIX + providerId);
   }
 
   async save(providerId: ProviderId, credential: CredentialHandle) {
-    writeJson(CREDENTIAL_STORAGE_PREFIX + providerId, credential)
+    writeJson(CREDENTIAL_STORAGE_PREFIX + providerId, credential);
   }
 
   async clear(providerId: ProviderId) {
-    if (typeof localStorage === "undefined") return
-    localStorage.removeItem(CREDENTIAL_STORAGE_PREFIX + providerId)
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(CREDENTIAL_STORAGE_PREFIX + providerId);
   }
 }
 
 class BrowserSettingsStore implements SettingsStore {
   async load() {
-    const saved = readJson<Record<string, unknown>>(SETTINGS_STORAGE_KEY)
+    const saved = readJson<Record<string, unknown>>(SETTINGS_STORAGE_KEY);
     const merged = applyWidgetSyncEnvDefaults({
       ...defaultSettings,
-      ...normalizePreferencesPayload(saved)
-    } as AppSettings)
+      ...normalizePreferencesPayload(saved),
+    } as AppSettings);
     if (!isLocale(merged.locale)) {
-      merged.locale = defaultSettings.locale
+      merged.locale = defaultSettings.locale;
     }
     // Older installs stored trayTarget="max" as the default. The new default
     // is "last-viewed"; upgrade the prior default so users get the new
     // behavior without a manual toggle. Anyone who wants "max" again can set
     // it explicitly in Settings → Notifications.
     if (merged.trayTarget === "max") {
-      merged.trayTarget = "last-viewed"
+      merged.trayTarget = "last-viewed";
     }
-    return merged
+    return merged;
   }
 
   async save(settings: AppSettings) {
-    writeJson(SETTINGS_STORAGE_KEY, toPersistedPreferences(settings))
+    writeJson(SETTINGS_STORAGE_KEY, toPersistedPreferences(settings));
   }
 }
 
 function applyWidgetSyncEnvDefaults(settings: AppSettings): AppSettings {
   const env = import.meta.env as {
-    VITE_WIDGET_SYNC_PAIR_ID?: string
-    VITE_WIDGET_SYNC_TOKEN?: string
-    VITE_WIDGET_SYNC_RELAY_URL?: string
-  }
+    VITE_WIDGET_SYNC_PAIR_ID?: string;
+    VITE_WIDGET_SYNC_TOKEN?: string;
+    VITE_WIDGET_SYNC_RELAY_URL?: string;
+  };
 
   if (!env.VITE_WIDGET_SYNC_PAIR_ID || !env.VITE_WIDGET_SYNC_TOKEN) {
-    return settings
+    return settings;
   }
 
   return {
     ...settings,
     widgetSyncPairId: env.VITE_WIDGET_SYNC_PAIR_ID,
     widgetSyncToken: env.VITE_WIDGET_SYNC_TOKEN,
-    widgetSyncRelayUrl: env.VITE_WIDGET_SYNC_RELAY_URL || settings.widgetSyncRelayUrl,
+    widgetSyncRelayUrl:
+      env.VITE_WIDGET_SYNC_RELAY_URL || settings.widgetSyncRelayUrl,
     featureFlags: {
       ...settings.featureFlags,
-      localApiEnabled: true
-    }
-  }
+      localApiEnabled: true,
+    },
+  };
 }
 
 function createPlatformRuntime(target: ResolvedPlatform): PlatformRuntime {
@@ -171,24 +179,29 @@ function createPlatformRuntime(target: ResolvedPlatform): PlatformRuntime {
       target,
       supportsTray: true,
       supportsAutoStart: true,
-      supportsSecureCredentialStore: true
+      supportsSecureCredentialStore: true,
     },
     credentials: new BrowserCredentialStore(),
-    settings: new BrowserSettingsStore()
-  }
+    settings: new BrowserSettingsStore(),
+  };
 }
 
-function createProviderRuntime(platform: PlatformRuntime, adapters = providerAdapters) {
+function createProviderRuntime(
+  platform: PlatformRuntime,
+  adapters = providerAdapters,
+) {
   return new RefreshOrchestrator(
     adapters.map((adapter) => ({
       definition: adapter.definition,
-      refresh: (options) => adapter.probe(platform, options)
-    }))
-  )
+      refresh: (options) => adapter.probe(platform, options),
+    })),
+  );
 }
 
 function enabledProviderIds(settings: AppSettings): ProviderId[] {
-  return settings.providerOrder.filter((id) => !settings.disabledProviders.includes(id))
+  return settings.providerOrder.filter(
+    (id) => !settings.disabledProviders.includes(id),
+  );
 }
 
 function toProviderState(
@@ -196,18 +209,19 @@ function toProviderState(
   result:
     | { ok: true; snapshot: UsageSnapshot }
     | {
-        ok: false
-        providerId: ProviderId
-        reason: string
-        retryable: boolean
-        errorKind?: "auth" | "network" | "rate_limited" | "parse" | "unexpected"
-      }
+        ok: false;
+        providerId: ProviderId;
+        reason: string;
+        retryable: boolean;
+        errorKind?:
+          "auth" | "network" | "rate_limited" | "parse" | "unexpected";
+      },
 ): ProviderSnapshotState {
   if (result.ok) {
     return {
       provider: definition,
-      snapshot: result.snapshot
-    }
+      snapshot: result.snapshot,
+    };
   }
 
   return {
@@ -216,31 +230,32 @@ function toProviderState(
       result.errorKind === "auth"
         ? {
             code: "missing_credentials",
-            message: result.reason
+            message: result.reason,
           }
         : {
             code: "unexpected",
             message: result.reason,
-            retryable: result.errorKind === "rate_limited" ? true : result.retryable
-          }
-  }
+            retryable:
+              result.errorKind === "rate_limited" ? true : result.retryable,
+          },
+  };
 }
 
 async function buildIdleState(
   definition: ProviderDefinition,
   enabled: ProviderId[],
-  runtime: PlatformRuntime
+  runtime: PlatformRuntime,
 ): Promise<ProviderSnapshotState> {
-  const credential = await runtime.credentials.load(definition.id)
+  const credential = await runtime.credentials.load(definition.id);
 
   if (!enabled.includes(definition.id)) {
     return {
       provider: definition,
       error: {
         code: "missing_credentials",
-        message: "Disabled in current settings."
-      }
-    }
+        message: "Disabled in current settings.",
+      },
+    };
   }
 
   if (!credential) {
@@ -248,9 +263,9 @@ async function buildIdleState(
       provider: definition,
       error: {
         code: "missing_credentials",
-        message: "Credentials not configured yet."
-      }
-    }
+        message: "Credentials not configured yet.",
+      },
+    };
   }
 
   return {
@@ -264,116 +279,132 @@ async function buildIdleState(
           type: "badge",
           label: "Status",
           value: "Configured",
-          tone: "good"
+          tone: "good",
         },
         {
           type: "text",
           label: "Credential",
-          value: credential.kind
-        }
+          value: credential.kind,
+        },
       ],
-      source: "cache"
-    }
-  }
+      source: "cache",
+    },
+  };
 }
 
 export interface DesktopShell {
-  getSettings(): Promise<AppSettings>
-  listProviders(): ProviderDefinition[]
-  refreshAll(options: ProbeOptions): Promise<ProviderSnapshotState[]>
-  updatePreferences(partial: Partial<AppSettings>): Promise<AppSettings>
-  toggleProvider(providerId: ProviderId): Promise<AppSettings>
-  configureWidgetSync(config: { enabled: boolean; token: string }): Promise<void>
-  updateWidgetSnapshot(snapshot: unknown): Promise<void>
-  getWidgetSyncUrls(token: string): Promise<string[]>
+  getSettings(): Promise<AppSettings>;
+  listProviders(): ProviderDefinition[];
+  refreshAll(options: ProbeOptions): Promise<ProviderSnapshotState[]>;
+  updatePreferences(partial: Partial<AppSettings>): Promise<AppSettings>;
+  toggleProvider(providerId: ProviderId): Promise<AppSettings>;
+  configureWidgetSync(config: {
+    enabled: boolean;
+    token: string;
+  }): Promise<void>;
+  updateWidgetSnapshot(snapshot: unknown): Promise<void>;
+  getWidgetSyncUrls(token: string): Promise<string[]>;
+  setWindowPresentation(alwaysVisible: boolean): Promise<void>;
 }
 
 export async function bootDesktopShell(): Promise<DesktopShell> {
-  purgeLegacyDemoCredentials()
+  purgeLegacyDemoCredentials();
 
-  const settingsStore = new BrowserSettingsStore()
-  resolvedPlatform = await detectRuntimePlatform()
-  let settings = await settingsStore.load()
-  await syncTrayLabels(settings.locale)
-  let platform = createPlatformRuntime(resolvedPlatform)
+  const settingsStore = new BrowserSettingsStore();
+  resolvedPlatform = await detectRuntimePlatform();
+  let settings = await settingsStore.load();
+  await syncTrayLabels(settings.locale);
+  let platform = createPlatformRuntime(resolvedPlatform);
 
   async function refreshAll(options: ProbeOptions) {
-    const enabled = enabledProviderIds(settings)
-    const enabledAdapters = providerAdapters.filter((adapter) => enabled.includes(adapter.definition.id))
-    const orchestrator = createProviderRuntime(platform, enabledAdapters)
-    const refreshed = await orchestrator.refreshAll(options)
+    const enabled = enabledProviderIds(settings);
+    const enabledAdapters = providerAdapters.filter((adapter) =>
+      enabled.includes(adapter.definition.id),
+    );
+    const orchestrator = createProviderRuntime(platform, enabledAdapters);
+    const refreshed = await orchestrator.refreshAll(options);
     const refreshedById = new Map(
-      refreshed.map((result) => [result.ok ? result.snapshot.providerId : result.providerId, result])
-    )
+      refreshed.map((result) => [
+        result.ok ? result.snapshot.providerId : result.providerId,
+        result,
+      ]),
+    );
 
-    const states: ProviderSnapshotState[] = []
+    const states: ProviderSnapshotState[] = [];
 
-    for (const definition of providerAdapters.map((adapter) => adapter.definition)) {
+    for (const definition of providerAdapters.map(
+      (adapter) => adapter.definition,
+    )) {
       if (!enabled.includes(definition.id)) {
-        states.push(await buildIdleState(definition, enabled, platform))
-        continue
+        states.push(await buildIdleState(definition, enabled, platform));
+        continue;
       }
 
-      const result = refreshedById.get(definition.id)
+      const result = refreshedById.get(definition.id);
       if (!result) {
-        states.push(await buildIdleState(definition, enabled, platform))
-        continue
+        states.push(await buildIdleState(definition, enabled, platform));
+        continue;
       }
 
-      states.push(toProviderState(definition, result))
+      states.push(toProviderState(definition, result));
     }
 
-    return states
+    return states;
   }
 
   async function updateSettings(next: AppSettings) {
-    const previousLocale = settings.locale
-    settings = next
-    await settingsStore.save(next)
+    const previousLocale = settings.locale;
+    settings = next;
+    await settingsStore.save(next);
     if (previousLocale !== next.locale) {
-      await syncTrayLabels(next.locale)
+      await syncTrayLabels(next.locale);
     }
-    platform = createPlatformRuntime(resolvedPlatform)
-    return settings
+    platform = createPlatformRuntime(resolvedPlatform);
+    return settings;
   }
 
   return {
     async getSettings() {
-      return settings
+      return settings;
     },
     listProviders() {
-      return providerAdapters.map((adapter) => adapter.definition)
+      return providerAdapters.map((adapter) => adapter.definition);
     },
     refreshAll,
     async updatePreferences(partial: Partial<AppSettings>) {
       return updateSettings({
         ...settings,
-        ...partial
-      })
+        ...partial,
+      });
     },
     async toggleProvider(providerId: ProviderId) {
-      const isDisabled = settings.disabledProviders.includes(providerId)
+      const isDisabled = settings.disabledProviders.includes(providerId);
       const disabledProviders = isDisabled
         ? settings.disabledProviders.filter((id) => id !== providerId)
-        : [...settings.disabledProviders, providerId]
+        : [...settings.disabledProviders, providerId];
       const providerOrder = settings.providerOrder.includes(providerId)
         ? settings.providerOrder
-        : [...settings.providerOrder, providerId]
+        : [...settings.providerOrder, providerId];
 
       return updateSettings({
         ...settings,
         providerOrder,
-        disabledProviders
-      })
+        disabledProviders,
+      });
     },
     async configureWidgetSync(config) {
-      await invokeTauri<void>("set_widget_sync_config", { config })
+      await invokeTauri<void>("set_widget_sync_config", { config });
     },
     async updateWidgetSnapshot(snapshot) {
-      await invokeTauri<void>("update_widget_snapshot", { snapshot })
+      await invokeTauri<void>("update_widget_snapshot", { snapshot });
     },
     async getWidgetSyncUrls(token) {
-      return (await invokeTauri<string[]>("get_widget_sync_urls", { token })) ?? []
-    }
-  }
+      return (
+        (await invokeTauri<string[]>("get_widget_sync_urls", { token })) ?? []
+      );
+    },
+    async setWindowPresentation(alwaysVisible) {
+      await invokeTauri<void>("set_window_presentation", { alwaysVisible });
+    },
+  };
 }

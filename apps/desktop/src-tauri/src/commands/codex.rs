@@ -16,6 +16,7 @@ static CODEX_FETCH: OnceLock<Mutex<super::fetch_state::ProviderFetchState>> = On
 struct RateLimitWindow {
     used_percent: f64,
     resets_at: Option<String>,
+    limit_window_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,14 +100,15 @@ pub async fn get_codex_usage(
         .get("plan_type")
         .and_then(Value::as_str)
         .map(format_plan);
-    let session = raw
+    let primary = raw
         .get("rate_limit")
         .and_then(|value| value.get("primary_window"))
         .and_then(map_window);
-    let weekly = raw
+    let secondary = raw
         .get("rate_limit")
         .and_then(|value| value.get("secondary_window"))
         .and_then(map_window);
+    let (session, weekly) = classify_windows(primary, secondary);
 
     if plan.is_none() && session.is_none() && weekly.is_none() {
         return Err(
@@ -170,7 +172,35 @@ fn map_window(value: &Value) -> Option<RateLimitWindow> {
     Some(RateLimitWindow {
         used_percent,
         resets_at,
+        limit_window_seconds: value.get("limit_window_seconds").and_then(Value::as_i64),
     })
+}
+
+fn classify_windows(
+    primary: Option<RateLimitWindow>,
+    secondary: Option<RateLimitWindow>,
+) -> (Option<RateLimitWindow>, Option<RateLimitWindow>) {
+    let mut session = None;
+    let mut weekly = None;
+    let mut unknown = Vec::new();
+
+    for window in [primary, secondary].into_iter().flatten() {
+        match window.limit_window_seconds {
+            Some(seconds) if seconds <= 6 * 60 * 60 => session = Some(window),
+            Some(seconds) if seconds >= 6 * 24 * 60 * 60 => weekly = Some(window),
+            _ => unknown.push(window),
+        }
+    }
+
+    for window in unknown {
+        if session.is_none() {
+            session = Some(window);
+        } else if weekly.is_none() {
+            weekly = Some(window);
+        }
+    }
+
+    (session, weekly)
 }
 
 fn build_usage_lines(

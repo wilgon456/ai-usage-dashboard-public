@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
 pub fn keychain_entry(service: &str) -> Result<keyring::Entry, String> {
@@ -31,6 +33,10 @@ pub fn read_keychain_cached(service: &str) -> Option<String> {
         };
     }
 
+    #[cfg(target_os = "macos")]
+    let resolved = read_macos_keychain(service);
+
+    #[cfg(not(target_os = "macos"))]
     let resolved = keychain_entry(service)
         .and_then(|entry| entry.get_password().map_err(|error| error.to_string()))
         .ok();
@@ -45,6 +51,24 @@ pub fn read_keychain_cached(service: &str) -> Option<String> {
         );
     }
     resolved
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_keychain(service: &str) -> Option<String> {
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "default".into());
+    let output = Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", service, "-a", &user, "-w"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let value = String::from_utf8(output.stdout).ok()?;
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 pub fn prime_keychain_cache(service: &str, value: String) {

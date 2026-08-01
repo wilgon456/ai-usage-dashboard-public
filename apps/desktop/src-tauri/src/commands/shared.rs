@@ -19,7 +19,7 @@ pub enum MetricLinePayload {
         used: f64,
         limit: f64,
         format: MetricFormat,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "resetsAt", skip_serializing_if = "Option::is_none")]
         resets_at: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         color: Option<String>,

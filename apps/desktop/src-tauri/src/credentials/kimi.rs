@@ -249,11 +249,13 @@ mod tests {
 
         let parsed: KimiCredentialsFile = serde_json::from_str(raw).expect("credentials parse");
         assert_eq!(parsed.access_token.as_deref(), Some("access"));
-        assert!(parsed
-            .expires_at
-            .as_ref()
-            .and_then(StoredExpiry::to_offset_datetime)
-            .is_some());
+        assert!(
+            parsed
+                .expires_at
+                .as_ref()
+                .and_then(StoredExpiry::to_offset_datetime)
+                .is_some()
+        );
         assert!(matches!(parsed.expires_in, Some(StoredExpiry::Float(value)) if value == 900.0));
     }
 }
